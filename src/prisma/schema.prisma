@@ -1,0 +1,184 @@
+// prisma/schema.prisma
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum MembershipType {
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+  DAILY_PASS
+}
+
+enum MemberStatus {
+  ACTIVE
+  INACTIVE
+  FROZEN
+  EXPIRED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  OVERDUE
+  REFUNDED
+  CANCELLED
+}
+
+enum AttendanceType {
+  CHECK_IN
+  CHECK_OUT
+}
+
+enum GenderType {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum TrainingGoal {
+  STRENGTH
+  CARDIO
+  WEIGHT_LOSS
+  MUSCLE_GAIN
+  GENERAL_FITNESS
+}
+
+model User {
+  id          String   @id @default(uuid())
+  email       String   @unique
+  password    String
+  role        String   @default("STAFF")
+  firstName   String
+  lastName    String
+  phone       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  lastLoginAt DateTime?
+}
+
+model Member {
+  id               String       @id @default(uuid())
+  memberId         String       @unique // Custom member ID for display (e.g., MEM001)
+  firstName        String
+  lastName         String
+  email            String       @unique
+  phone            String
+  gender           GenderType   @default(MALE)
+  dateOfBirth      DateTime
+  address          String?
+  emergencyContact String?
+  joinDate         DateTime     @default(now())
+  lastVisit        DateTime?
+  expiryDate       DateTime?
+  status           MemberStatus @default(ACTIVE)
+  membershipType   MembershipType @default(MONTHLY)
+  trainingGoal     TrainingGoal?
+  height           Float?       // in cm
+  weight           Float?       // in kg
+  notes            String?
+  photoUrl         String?
+  
+  memberships      Membership[]
+  attendance       Attendance[]
+  payments         Payment[]
+  classes          ClassAttendance[]
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+}
+
+model Membership {
+  id             String         @id @default(uuid())
+  memberId       String
+  member         Member         @relation(fields: [memberId], references: [id])
+  startDate      DateTime       @default(now())
+  endDate        DateTime
+  type           MembershipType
+  price          Float
+  discount       Float?
+  isActive       Boolean        @default(true)
+  notes          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+model Attendance {
+  id           String         @id @default(uuid())
+  memberId     String
+  member       Member         @relation(fields: [memberId], references: [id])
+  timestamp    DateTime       @default(now())
+  type         AttendanceType @default(CHECK_IN)
+  notes        String?
+}
+
+model Payment {
+  id             String        @id @default(uuid())
+  invoiceNumber  String        @unique
+  memberId       String
+  member         Member        @relation(fields: [memberId], references: [id])
+  amount         Float
+  dueDate        DateTime
+  paidDate       DateTime?
+  status         PaymentStatus @default(PENDING)
+  paymentMethod  String?
+  notes          String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+}
+
+model Class {
+  id           String           @id @default(uuid())
+  name         String
+  description  String?
+  startTime    DateTime
+  endTime      DateTime
+  capacity     Int
+  trainer      String?
+  location     String?
+  isActive     Boolean          @default(true)
+  attendees    ClassAttendance[]
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+}
+
+model ClassAttendance {
+  id        String   @id @default(uuid())
+  classId   String
+  class     Class    @relation(fields: [classId], references: [id])
+  memberId  String
+  member    Member   @relation(fields: [memberId], references: [id])
+  attendedAt DateTime @default(now())
+  
+  @@unique([classId, memberId, attendedAt])
+}
+
+model Expense {
+  id          String   @id @default(uuid())
+  title       String
+  amount      Float
+  date        DateTime
+  category    String
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Equipment {
+  id           String   @id @default(uuid())
+  name         String
+  type         String
+  purchaseDate DateTime
+  cost         Float
+  status       String   @default("ACTIVE")
+  maintenanceSchedule DateTime?
+  lastMaintenance     DateTime?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
