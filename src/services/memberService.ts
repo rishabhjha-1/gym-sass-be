@@ -1,54 +1,94 @@
 // src/services/memberService.ts
-import { PrismaClient, Member } from '@prisma/client';
+import { PrismaClient, Member, Prisma, MemberStatus, MembershipType, GenderType, TrainingGoal } from '@prisma/client';
 import { MemberFilter, PaginatedResponse } from '../type';
 import moment from 'moment';
+import { v4 as uuidv4 } from 'uuid';
 
 const prisma = new PrismaClient();
 
 export class MemberService {
-  static async createMember(memberData: any): Promise<Member> {
-    // Generate custom memberId (e.g., MEM001, MEM002)
-    const memberCount = await prisma.member.count();
-    const memberId = `MEM${(memberCount + 1).toString().padStart(3, '0')}`;
+  static async createMember(memberData: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone: string;
+    gender: GenderType;
+    dateOfBirth: string | Date;
+    address?: string;
+    emergencyContact?: string;
+    membershipType: MembershipType;
+    status?: MemberStatus;
+    trainingGoal?: TrainingGoal;
+    height?: number;
+    weight?: number;
+    notes?: string;
+    photoUrl?: string;
+    gymId: string;
+  }) {
+    try {
+      // Check if member with email already exists
+      const existingMember = await prisma.member.findUnique({
+        where: { email: memberData.email }
+      });
 
-    // Create member
-    const member = await prisma.member.create({
-      data: {
-        ...memberData,
-        memberId,
-        dateOfBirth: new Date(memberData.dateOfBirth)
+      if (existingMember) {
+        throw new Error('Member with this email already exists');
       }
-    });
 
-    // Create initial membership
-    const endDate = this.calculateMembershipEndDate(
-      new Date(),
-      memberData.membershipType
-    );
+      // Generate a unique memberId using UUID
+      const memberId = `MEM${uuidv4().split('-')[0]}`;
 
-    await prisma.membership.create({
-      data: {
-        memberId: member.id,
-        startDate: new Date(),
-        endDate,
-        type: memberData.membershipType,
-        price: this.getMembershipPrice(memberData.membershipType),
-        isActive: true
+      // Create member
+      const member = await prisma.member.create({
+        data: {
+          ...memberData,
+          memberId,
+          dateOfBirth: new Date(memberData.dateOfBirth),
+          joinDate: new Date(),
+          status: memberData.status || MemberStatus.ACTIVE
+        }
+      });
+
+      // Create initial membership
+      const endDate = this.calculateMembershipEndDate(
+        new Date(),
+        memberData.membershipType
+      );
+
+      await prisma.membership.create({
+        data: {
+          memberId: member.id,
+          startDate: new Date(),
+          endDate,
+          type: memberData.membershipType,
+          price: this.getMembershipPrice(memberData.membershipType),
+          isActive: true
+        }
+      });
+
+      return member;
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === 'P2002') {
+          throw new Error('A member with this email already exists');
+        }
+        throw new Error('Database error occurred while creating member');
       }
-    });
-
-    return member;
+      throw error;
+    }
   }
 
   static async getMembers(
-    filter: MemberFilter,
+    filter: MemberFilter & { gymId: string },
     page: number = 1,
     limit: number = 10
   ): Promise<PaginatedResponse<Member>> {
     const skip = (page - 1) * limit;
 
     // Build filter conditions
-    const where: any = {};
+    const where: any = {
+      gymId: filter.gymId
+    };
     
     if (filter.status) {
       where.status = filter.status;
@@ -109,27 +149,58 @@ export class MemberService {
     };
   }
 
-  static async getMemberById(id: string): Promise<Member | null> {
-    return prisma.member.findUnique({
-      where: { id },
-      include: {
-        memberships: true,
-        payments: {
-          orderBy: { createdAt: 'desc' }
-        },
-        attendance: {
-          orderBy: { timestamp: 'desc' },
-          take: 10
+  static async getMemberById(id: string, gymId: string): Promise<Member | null> {
+    try {
+      const member = await prisma.member.findFirst({
+        where: { 
+          id,
+          gymId
         }
+      });
+
+      if (!member) {
+        throw new Error('Member not found');
       }
-    });
+
+      return member;
+    } catch (error) {
+      if (error instanceof Error) {
+        throw error;
+      }
+      throw new Error('Failed to retrieve member');
+    }
   }
 
-  static async updateMember(id: string, memberData: any): Promise<Member> {
-    return prisma.member.update({
-      where: { id },
-      data: memberData
-    });
+  static async updateMember(
+    id: string,
+    memberData: Partial<Omit<Prisma.MemberUpdateInput, 'gym'>> & { gymId: string }
+  ): Promise<Member> {
+    try {
+      const member = await prisma.member.findFirst({
+        where: { 
+          id,
+          gymId: memberData.gymId
+        }
+      });
+
+      if (!member) {
+        throw new Error('Member not found');
+      }
+
+      const { gymId, ...updateData } = memberData;
+      return await prisma.member.update({
+        where: { id },
+        data: updateData
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        if (error.code === 'P2002') {
+          throw new Error('A member with this email already exists');
+        }
+        throw new Error('Database error occurred while updating member');
+      }
+      throw error;
+    }
   }
 
   static async getMembershipGrowth() {
@@ -224,41 +295,63 @@ export class MemberService {
     };
   }
 
-  private static calculateMembershipEndDate(startDate: Date, membershipType: string): Date {
+  static async deleteMember(id: string, gymId: string): Promise<void> {
+    try {
+      const member = await prisma.member.findFirst({
+        where: { 
+          id,
+          gymId
+        }
+      });
+
+      if (!member) {
+        throw new Error('Member not found');
+      }
+
+      await prisma.member.delete({
+        where: { id }
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        throw new Error('Database error occurred while deleting member');
+      }
+      throw error;
+    }
+  }
+
+  private static calculateMembershipEndDate(startDate: Date, type: MembershipType): Date {
     const endDate = new Date(startDate);
-    
-    switch (membershipType) {
-      case 'DAILY_PASS':
-        endDate.setDate(endDate.getDate() + 1);
-        break;
-      case 'MONTHLY':
+    switch (type) {
+      case MembershipType.MONTHLY:
         endDate.setMonth(endDate.getMonth() + 1);
         break;
-      case 'QUARTERLY':
+      case MembershipType.QUARTERLY:
         endDate.setMonth(endDate.getMonth() + 3);
         break;
-      case 'ANNUAL':
+      case MembershipType.ANNUAL:
         endDate.setFullYear(endDate.getFullYear() + 1);
         break;
+      case MembershipType.DAILY_PASS:
+        endDate.setDate(endDate.getDate() + 1);
+        break;
       default:
-        endDate.setMonth(endDate.getMonth() + 1);
+        throw new Error('Invalid membership type');
     }
-    
     return endDate;
   }
 
-  private static getMembershipPrice(membershipType: string): number {
-    switch (membershipType) {
-      case 'DAILY_PASS':
-        return 15;
-      case 'MONTHLY':
+  private static getMembershipPrice(type: MembershipType): number {
+    switch (type) {
+      case MembershipType.MONTHLY:
         return 50;
-      case 'QUARTERLY':
+      case MembershipType.QUARTERLY:
         return 135;
-      case 'ANNUAL':
-        return 480;
+      case MembershipType.ANNUAL:
+        return 500;
+      case MembershipType.DAILY_PASS:
+        return 10;
       default:
-        return 50;
+        throw new Error('Invalid membership type');
     }
   }
 }

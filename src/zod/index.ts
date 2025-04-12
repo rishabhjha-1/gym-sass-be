@@ -20,7 +20,8 @@ export const UserSchema = z.object({
   firstName: z.string().min(2, 'First name must be at least 2 characters'),
   lastName: z.string().min(2, 'Last name must be at least 2 characters'),
   role: z.string().optional(),
-  phone: z.string().optional()
+  phone: z.string().optional(),
+  gymId: z.string().uuid('Invalid gym ID format')
 });
 
 export const MemberSchema = z.object({
@@ -93,4 +94,12 @@ export const ExpenseSchema = z.object({
 export const PaginationSchema = z.object({
   page: z.string().or(z.number()).transform(Number).optional().default(1),
   limit: z.string().or(z.number()).transform(Number).optional().default(10),
+});
+
+export const GymSchema = z.object({
+  name: z.string().min(2, 'Gym name must be at least 2 characters'),
+  address: z.string().min(5, 'Address must be at least 5 characters'),
+  phone: z.string().regex(/^\+?[1-9]\d{1,14}$/, 'Invalid phone number format').optional(),
+  email: z.string().email('Invalid email format').optional(),
+  isActive: z.boolean().optional().default(true)
 });

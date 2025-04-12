@@ -8,7 +8,10 @@ const prisma = new PrismaClient();
 export class AttendanceService {
   static async recordAttendance(attendanceData: any): Promise<Attendance> {
     const member = await prisma.member.findUnique({
-      where: { id: attendanceData.memberId }
+      where: { 
+        id: attendanceData.memberId,
+        gymId: attendanceData.gymId
+      }
     });
     
     if (!member) {
@@ -30,14 +33,18 @@ export class AttendanceService {
   }
   
   static async getAttendance(
-    filter: AttendanceFilter,
+    filter: AttendanceFilter & { gymId: string },
     page: number = 1,
     limit: number = 10
   ): Promise<PaginatedResponse<any>> {
     const skip = (page - 1) * limit;
     
     // Build filter conditions
-    const where: any = {};
+    const where: any = {
+      member: {
+        gymId: filter.gymId
+      }
+    };
     
     if (filter.memberId) {
       where.memberId = filter.memberId;
@@ -88,16 +95,23 @@ export class AttendanceService {
     };
   }
   
-  static async getAttendanceStats() {
+  static async getAttendanceStats(gymId: string) {
     const today = moment().startOf('day');
     const yesterday = moment().subtract(1, 'days').startOf('day');
     const thisWeekStart = moment().startOf('week');
     const lastWeekStart = moment().subtract(1, 'week').startOf('week');
     const lastWeekEnd = moment().subtract(1, 'week').endOf('week');
     
+    const baseWhere = {
+      member: {
+        gymId
+      }
+    };
+    
     // Get today's attendance count
     const todayCount = await prisma.attendance.count({
       where: {
+        ...baseWhere,
         timestamp: {
           gte: today.toDate(),
           lt: moment(today).add(1, 'day').toDate()
@@ -108,6 +122,7 @@ export class AttendanceService {
     // Get yesterday's attendance count
     const yesterdayCount = await prisma.attendance.count({
       where: {
+        ...baseWhere,
         timestamp: {
           gte: yesterday.toDate(),
           lt: today.toDate()
@@ -118,6 +133,7 @@ export class AttendanceService {
     // Get this week's attendance count
     const thisWeekCount = await prisma.attendance.count({
       where: {
+        ...baseWhere,
         timestamp: {
           gte: thisWeekStart.toDate(),
           lt: moment().endOf('day').toDate()
@@ -128,6 +144,7 @@ export class AttendanceService {
     // Get last week's attendance count
     const lastWeekCount = await prisma.attendance.count({
       where: {
+        ...baseWhere,
         timestamp: {
           gte: lastWeekStart.toDate(),
           lt: lastWeekEnd.toDate()
@@ -143,6 +160,7 @@ export class AttendanceService {
       
       const count = await prisma.attendance.count({
         where: {
+          ...baseWhere,
           timestamp: {
             gte: hourStart.toDate(),
             lt: hourEnd.toDate()

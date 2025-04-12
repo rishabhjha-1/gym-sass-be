@@ -6,12 +6,15 @@ import moment from 'moment';
 const prisma = new PrismaClient();
 
 export class PaymentService {
-  static async getPendingPayment(): Promise<Payment[]> {
+  static async getPendingPayment(gymId: string): Promise<Payment[]> {
     return prisma.payment.findMany({
       where: {
         status: PaymentStatus.PENDING,
         dueDate: {
           lte: new Date() // Only get payments where due date has passed
+        },
+        member: {
+          gymId
         }
       },
       include: {
@@ -31,15 +34,35 @@ export class PaymentService {
       }
     });
   }
+
   static async createPayment(paymentData: {
     amount: number;
     paymentMethod: string;
     memberId: string;
     dueDate: string | Date;
     status?: PaymentStatus;
+    gymId: string;
   }): Promise<Payment> {
+    // Verify member belongs to the gym
+    const member = await prisma.member.findUnique({
+      where: {
+        id: paymentData.memberId,
+        gymId: paymentData.gymId
+      }
+    });
+
+    if (!member) {
+      throw new Error('Member not found in this gym');
+    }
+
     // Generate invoice number
-    const paymentCount = await prisma.payment.count();
+    const paymentCount = await prisma.payment.count({
+      where: {
+        member: {
+          gymId: paymentData.gymId
+        }
+      }
+    });
     const invoiceNumber = `INV${new Date().getFullYear()}${(paymentCount + 1).toString().padStart(5, '0')}`;
     
     return prisma.payment.create({
@@ -52,14 +75,18 @@ export class PaymentService {
   }
   
   static async getPayments(
-    filter: RevenueFilter,
+    filter: RevenueFilter & { gymId: string },
     page: number = 1,
     limit: number = 10
   ): Promise<PaginatedResponse<any>> {
     const skip = (page - 1) * limit;
     
     // Build filter conditions
-    const where: any = {};
+    const where: any = {
+      member: {
+        gymId: filter.gymId
+      }
+    };
     
     if (filter.paymentMethod) {
       where.paymentMethod = filter.paymentMethod;
@@ -110,25 +137,24 @@ export class PaymentService {
     };
   }
   
-  static async updatePaymentStatus(id: string, status: string): Promise<Payment> {
-    return prisma.payment.update({
-      where: { id },
-      data: { 
-        status: status as PaymentStatus,
-        ...(status === PaymentStatus.PAID ? { paidDate: new Date() } : {})
-      }
-    });
-  }
-  
-  static async getRevenueStats() {
+  static async getRevenueStats(gymId: string) {
     // Calculate date ranges
     const today = moment().startOf('day');
     const thisMonth = moment().startOf('month');
     const lastMonth = moment().subtract(1, 'month').startOf('month');
     const lastMonthEnd = moment().subtract(1, 'month').endOf('month');
     
+    const baseWhere = {
+      member: {
+        gymId
+      }
+    };
+    
     // Get paid payments for different time periods
-    const paidWhere = { status: PaymentStatus.PAID };
+    const paidWhere = { 
+      ...baseWhere,
+      status: PaymentStatus.PAID 
+    };
     
     // Today's revenue
     const todayRevenue = await prisma.payment.aggregate({
@@ -180,7 +206,10 @@ export class PaymentService {
     
     // Get pending payments
     const pendingPayments = await prisma.payment.aggregate({
-      where: { status: PaymentStatus.PENDING },
+      where: { 
+        ...baseWhere,
+        status: PaymentStatus.PENDING 
+      },
       _sum: { amount: true },
       _count: true
     });
@@ -188,6 +217,7 @@ export class PaymentService {
     // Get overdue payments
     const overduePayments = await prisma.payment.aggregate({
       where: { 
+        ...baseWhere,
         status: PaymentStatus.OVERDUE,
         dueDate: { lt: new Date() }
       },
@@ -195,77 +225,29 @@ export class PaymentService {
       _count: true
     });
     
-    // Monthly revenue data for last 6 months
-    const monthlyData = [];
-    for (let i = 5; i >= 0; i--) {
-      const startDate = moment().subtract(i, 'months').startOf('month');
-      const endDate = moment().subtract(i, 'months').endOf('month');
-      
-      const revenue = await prisma.payment.aggregate({
-        where: {
-          ...paidWhere,
-          paidDate: {
-            gte: startDate.toDate(),
-            lt: endDate.toDate()
-          }
-        },
-        _sum: { amount: true }
-      });
-      
-      monthlyData.push({
-        month: startDate.format('MMM'),
-        revenue: revenue._sum.amount || 0
-      });
-    }
-    
-    // Calculate revenue forecast based on historical data and trend
-    const forecastData = [];
-    const trendFactor = (thisMonthRevenue._sum?.amount || 0) > 0 && (lastMonthRevenue._sum?.amount || 0) > 0 
-      ? (thisMonthRevenue._sum?.amount || 0) / (lastMonthRevenue._sum?.amount || 1)
-      : 1.05; // Default 5% growth if no data
-    
-    let prevMonth = (thisMonthRevenue._sum.amount || 0);
-    
-    for (let i = 1; i <= 3; i++) {
-      const projectedRevenue = prevMonth * trendFactor;
-      prevMonth = projectedRevenue;
-      
-      forecastData.push({
-        month: moment().add(i, 'months').format('MMM'),
-        projected: Math.round(projectedRevenue * 100) / 100
-      });
-    }
-    
     return {
-      revenue: {
-        today: todayRevenue._sum?.amount || 0,
-        thisMonth: thisMonthRevenue._sum?.amount || 0,
-        lastMonth: lastMonthRevenue._sum?.amount || 0,
-        growth: lastMonthRevenue._sum?.amount 
-          ? ((thisMonthRevenue._sum?.amount || 0) - (lastMonthRevenue._sum?.amount || 0)) / (lastMonthRevenue._sum?.amount || 1) * 100
-          : 0
-      },
-      paymentMethods: paymentMethods.map((method) => ({
-        method: method.paymentMethod || 'Other',
-        amount: method._sum?.amount || 0
-      })),
+      today: todayRevenue._sum.amount || 0,
+      thisMonth: thisMonthRevenue._sum.amount || 0,
+      lastMonth: lastMonthRevenue._sum.amount || 0,
+      paymentMethods,
       pending: {
-        amount: pendingPayments._sum?.amount || 0,
+        amount: pendingPayments._sum.amount || 0,
         count: pendingPayments._count
       },
       overdue: {
-        amount: overduePayments._sum?.amount || 0,
+        amount: overduePayments._sum.amount || 0,
         count: overduePayments._count
-      },
-      monthlyData,
-      forecast: forecastData
+      }
     };
   }
 
-  static async getPendingPayments(): Promise<Payment[]> {
+  static async getPendingPayments(gymId: string): Promise<Payment[]> {
     return prisma.payment.findMany({
       where: {
-        status: PaymentStatus.PENDING
+        status: PaymentStatus.PENDING,
+        member: {
+          gymId
+        }
       },
       include: {
         member: {
@@ -282,9 +264,14 @@ export class PaymentService {
     });
   }
 
-  static async getPaymentById(id: string): Promise<Payment | null> {
-    return prisma.payment.findUnique({
-      where: { id },
+  static async getPaymentById(id: string, gymId: string): Promise<Payment | null> {
+    return prisma.payment.findFirst({
+      where: {
+        id,
+        member: {
+          gymId
+        }
+      },
       include: {
         member: {
           select: {
@@ -295,6 +282,33 @@ export class PaymentService {
             email: true
           }
         }
+      }
+    });
+  }
+
+  static async updatePaymentStatus(id: string, gymId: string, status: PaymentStatus): Promise<Payment> {
+    // First verify the payment exists and belongs to the gym
+    const payment = await prisma.$queryRaw<{ id: string, member_gym_id: string }[]>`
+      SELECT p.id, m."gymId" as member_gym_id
+      FROM "Payment" p
+      JOIN "Member" m ON p."memberId" = m.id
+      WHERE p.id = ${id}
+    `;
+
+    if (!payment || payment.length === 0) {
+      throw new Error('Payment not found');
+    }
+
+    if (payment[0].member_gym_id !== gymId) {
+      throw new Error('Payment not found in this gym');
+    }
+
+    // Update the payment status
+    return prisma.payment.update({
+      where: { id },
+      data: { 
+        status,
+        paidDate: status === PaymentStatus.PAID ? new Date() : undefined
       }
     });
   }

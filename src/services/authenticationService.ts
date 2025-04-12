@@ -9,10 +9,26 @@ interface TokenPayload {
   userId: string;
   email: string;
   role: string;
+  gymId: string;
+}
+
+interface UserWithGymId {
+  id: string;
+  email: string;
+  password: string;
+  role: string;
+  firstName: string;
+  lastName: string;
+  phone: string | null;
+  isActive: boolean;
+  gymId: string;
+  createdAt: Date;
+  updatedAt: Date;
+  lastLoginAt: Date | null;
 }
 
 export class AuthService {
-  private static readonly JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+  private static readonly JWT_SECRET = process.env.JWT_SECRET;
   private static readonly JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
 
   static async registerUser(userData: {
@@ -22,6 +38,7 @@ export class AuthService {
     lastName: string;
     role?: string;
     phone?: string;
+    gymId: string;
   }) {
     const hashedPassword = await bcrypt.hash(userData.password, 10);
 
@@ -37,7 +54,14 @@ export class AuthService {
   }
 
   static async loginUser(email: string, password: string) {
-    const user = await prisma.user.findUnique({ where: { email } });
+    if (!this.JWT_SECRET) {
+      throw new Error('JWT_SECRET is not configured');
+    }
+
+    const user = await prisma.user.findUnique({ 
+      where: { email }
+    }) as UserWithGymId | null;
+    
     if (!user) {
       throw new Error('Invalid credentials');
     }
@@ -56,24 +80,28 @@ export class AuthService {
     const payload: TokenPayload = {
       userId: user.id,
       email: user.email,
-      role: user.role
+      role: user.role,
+      gymId: user.gymId
     };
 
-    const token = jwt.sign(
+    try {
+      const token = jwt.sign(
         payload,
-        AuthService.JWT_SECRET as jwt.Secret,
+        this.JWT_SECRET as jwt.Secret,
         {
-          expiresIn: AuthService.JWT_EXPIRES_IN
+          expiresIn: this.JWT_EXPIRES_IN
         } as jwt.SignOptions
       );
-      
-      
 
-    const { password: _, ...userWithoutPassword } = user;
-    return {
-      user: userWithoutPassword,
-      token
-    };
+      const { password: _, ...userWithoutPassword } = user;
+      return {
+        user: userWithoutPassword,
+        token
+      };
+    } catch (error) {
+      console.error('Error signing JWT:', error);
+      throw new Error('Failed to generate authentication token');
+    }
   }
 
   static async getUserById(userId: string) {
@@ -87,10 +115,20 @@ export class AuthService {
   }
 
   static verifyToken(token: string): TokenPayload {
+    if (!this.JWT_SECRET) {
+      throw new Error('JWT_SECRET is not configured');
+    }
+
     try {
       return jwt.verify(token, this.JWT_SECRET) as TokenPayload;
     } catch (error) {
-      throw new Error('Invalid token');
+      if (error instanceof jwt.TokenExpiredError) {
+        throw new Error('Token has expired');
+      }
+      if (error instanceof jwt.JsonWebTokenError) {
+        throw new Error('Invalid token');
+      }
+      throw new Error('Failed to verify token');
     }
   }
 }

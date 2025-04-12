@@ -2,11 +2,12 @@
 import { Request, Response, NextFunction } from 'express';
 import { AuthService } from '../services/authenticationService';
 
-interface AuthRequest extends Request {
+export interface AuthRequest extends Request {
   user?: {
     userId: string;
     email: string;
     role: string;
+    gymId: string;
   };
 }
 
@@ -39,4 +40,20 @@ export function authorizeRole(roles: string[]) {
     
     next();
   };
+}
+
+// Add a new middleware to ensure users can only access their gym's data
+export function authorizeGymAccess(req: AuthRequest, res: Response, next: NextFunction) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  // For routes that have gymId in params or body
+  const requestedGymId = req.params.gymId || req.body.gymId;
+  
+  if (requestedGymId && requestedGymId !== req.user.gymId) {
+    return res.status(403).json({ error: 'Access to this gym is not allowed' });
+  }
+
+  next();
 }
