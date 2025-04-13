@@ -96,6 +96,7 @@ export class AuthService {
       const { password: _, ...userWithoutPassword } = user;
       return {
         user: userWithoutPassword,
+        gymId: user.gymId,
         token
       };
     } catch (error) {
