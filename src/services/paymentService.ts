@@ -65,9 +65,12 @@ export class PaymentService {
     });
     const invoiceNumber = `INV${new Date().getFullYear()}${(paymentCount + 1).toString().padStart(5, '0')}`;
     
+    // Remove gymId from the payment data since it's not needed in the Payment model
+    const { gymId, ...paymentDataWithoutGymId } = paymentData;
+    
     return prisma.payment.create({
       data: {
-        ...paymentData,
+        ...paymentDataWithoutGymId,
         invoiceNumber,
         dueDate: new Date(paymentData.dueDate)
       }
@@ -310,6 +313,30 @@ export class PaymentService {
         status,
         paidDate: status === PaymentStatus.PAID ? new Date() : undefined
       }
+    });
+  }
+
+  static async updatePaymentMethod(id: string, gymId: string, paymentMethod: string): Promise<Payment> {
+    // First verify the payment exists and belongs to the gym
+    const payment = await prisma.$queryRaw<{ id: string, member_gym_id: string }[]>`
+      SELECT p.id, m."gymId" as member_gym_id
+      FROM "Payment" p
+      JOIN "Member" m ON p."memberId" = m.id
+      WHERE p.id = ${id}
+    `;
+
+    if (!payment || payment.length === 0) {
+      throw new Error('Payment not found');
+    }
+
+    if (payment[0].member_gym_id !== gymId) {
+      throw new Error('Payment not found in this gym');
+    }
+
+    // Update the payment method
+    return prisma.payment.update({
+      where: { id },
+      data: { paymentMethod }
     });
   }
 }

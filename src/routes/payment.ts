@@ -48,19 +48,6 @@ router.get('/', async (req: AuthRequest, res) => {
   }
 });
 
-// Get payment by ID
-router.get('/:id', async (req: AuthRequest, res) => {
-  try {
-    const payment = await PaymentService.getPaymentById(req.params.id, req.user!.gymId);
-    if (!payment) {
-      return res.status(404).json({ error: 'Payment not found' });
-    }
-    res.json(payment);
-  } catch (error:any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // Get pending payments
 router.get('/pending', async (req: AuthRequest, res) => {
   try {
@@ -76,6 +63,19 @@ router.get('/stats', async (req: AuthRequest, res) => {
   try {
     const stats = await PaymentService.getRevenueStats(req.user!.gymId);
     res.json(stats);
+  } catch (error:any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get payment by ID
+router.get('/:id', async (req: AuthRequest, res) => {
+  try {
+    const payment = await PaymentService.getPaymentById(req.params.id, req.user!.gymId);
+    if (!payment) {
+      return res.status(404).json({ error: 'Payment not found' });
+    }
+    res.json(payment);
   } catch (error:any) {
     res.status(500).json({ error: error.message });
   }
@@ -97,6 +97,36 @@ router.patch('/:id/status', async (req: AuthRequest, res) => {
   }
 });
 
+// Update payment method
+router.patch('/:id/method', async (req: AuthRequest, res) => {
+  try {
+    const { paymentMethod } = req.body;
+    
+    if (!paymentMethod) {
+      return res.status(400).json({ error: 'Payment method is required' });
+    }
+    
+    const payment = await PaymentService.updatePaymentMethod(req.params.id, req.user!.gymId, paymentMethod);
+    res.json(payment);
+  } catch (error:any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.patch('/:id/payment-method', async (req: AuthRequest, res) => {
+  try {
+    const { paymentMethod } = req.body;
+    
+    if (!paymentMethod) {
+      return res.status(400).json({ error: 'Payment method is required' });   
+    }
+
+    const payment = await PaymentService.updatePaymentMethod(req.params.id, req.user!.gymId, paymentMethod);
+    res.json(payment);
+  } catch (error:any) {
+    res.status(500).json({ error: error.message });
+  }
+});
 // Send payment notification
 router.post('/:id/notify', async (req: AuthRequest, res) => {
   try {

@@ -20,7 +20,11 @@ export class AttendanceService {
     
     // Record attendance
     const attendance = await prisma.attendance.create({
-      data: attendanceData
+      data: {
+        memberId: attendanceData.memberId,
+        type: attendanceData.type,
+        notes: attendanceData.notes
+      }
     });
     
     // Update member's last visit
