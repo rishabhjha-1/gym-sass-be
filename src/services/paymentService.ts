@@ -63,7 +63,7 @@ export class PaymentService {
         }
       }
     });
-    const invoiceNumber = `INV${new Date().getFullYear()}${(paymentCount + 1).toString().padStart(5, '0')}`;
+    const invoiceNumber = `INV+ ${paymentData.memberId}-${new Date().getFullYear()}${(paymentCount + 1).toString().padStart(5, '0')}`;
     
     // Remove gymId from the payment data since it's not needed in the Payment model
     const { gymId, ...paymentDataWithoutGymId } = paymentData;

@@ -101,4 +101,17 @@ router.get('/stats/growth', async (req: AuthRequest, res) => {
   }
 });
 
+// Make member inactive
+router.patch('/:id/inactive', async (req: AuthRequest, res) => {
+  try {
+    const member = await MemberService.updateMember(req.params.id, {
+      status: 'INACTIVE',
+      gymId: req.user!.gymId
+    });
+    res.json(member);
+  } catch (error:any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;
