@@ -20,7 +20,7 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(helmet());
 app.use(cors({
-  origin: ['http://localhost:3000', 'https://gym.nexgenbattles.com'],
+  origin: [ 'https://gym.nexgenbattles.com','http://localhost:3000','http://localhost:5173'],
   credentials: true
 }));
 app.use(express.json());
