@@ -48,10 +48,23 @@ router.get('/', async (req: AuthRequest, res) => {
   }
 });
 
+
+
+
 // Get pending payments
 router.get('/pending', async (req: AuthRequest, res) => {
   try {
     const payments = await PaymentService.getPendingPayments(req.user!.gymId);
+    res.json(payments);
+  } catch (error:any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get paid or upcoming due payments (within 5 days)
+router.get('/paid-or-upcoming', async (req: AuthRequest, res) => {
+  try {
+    const payments = await PaymentService.getPaidOrUpcomingPayments(req.user!.gymId);
     res.json(payments);
   } catch (error:any) {
     res.status(500).json({ error: error.message });
@@ -107,6 +120,22 @@ router.patch('/:id/method', async (req: AuthRequest, res) => {
     }
     
     const payment = await PaymentService.updatePaymentMethod(req.params.id, req.user!.gymId, paymentMethod);
+    res.json(payment);
+  } catch (error:any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update payment amount
+router.patch('/:id/amount', async (req: AuthRequest, res) => {
+  try {
+    const { amount } = req.body;
+    
+    if (typeof amount !== 'number' || amount <= 0) {
+      return res.status(400).json({ error: 'Valid amount is required' });
+    }
+    
+    const payment = await PaymentService.updatePaymentAmount(req.params.id, req.user!.gymId, amount);
     res.json(payment);
   } catch (error:any) {
     res.status(500).json({ error: error.message });
@@ -171,6 +200,16 @@ router.post('/notify/pending', async (req: AuthRequest, res) => {
       failed: notifications.filter(n => !n.success).length,
       details: notifications
     });
+  } catch (error:any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete payment
+router.delete('/:id', async (req: AuthRequest, res) => {
+  try {
+    await PaymentService.deletePayment(req.params.id, req.user!.gymId);
+    res.status(204).send();
   } catch (error:any) {
     res.status(500).json({ error: error.message });
   }

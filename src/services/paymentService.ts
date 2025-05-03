@@ -339,5 +339,99 @@ export class PaymentService {
       data: { paymentMethod }
     });
   }
+
+  static async getPaidOrUpcomingPayments(gymId: string): Promise<Payment[]> {
+    const today = moment().startOf('day');
+    const fiveDaysFromNow = moment().add(5, 'days').endOf('day');
+
+    return prisma.payment.findMany({
+      where: {
+        OR: [
+          {
+            status: PaymentStatus.PAID
+          },
+          {
+            status: PaymentStatus.PENDING,
+            dueDate: {
+              gte: today.toDate(),
+              lte: fiveDaysFromNow.toDate()
+            }
+          },
+          {
+            status: PaymentStatus.OVERDUE,
+            dueDate: {
+              gte: moment().subtract(5, 'days').startOf('day').toDate(),
+              lt: today.toDate()
+            }
+          }
+        ],
+        member: {
+          gymId
+        }
+      },
+      include: {
+        member: {
+          select: {
+            id: true,
+            memberId: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true
+          }
+        }
+      },
+      orderBy: {
+        dueDate: 'asc'
+      }
+    });
+  }
+
+  static async updatePaymentAmount(id: string, gymId: string, amount: number): Promise<Payment> {
+    // First verify the payment exists and belongs to the gym
+    const payment = await prisma.$queryRaw<{ id: string, member_gym_id: string }[]>`
+      SELECT p.id, m."gymId" as member_gym_id
+      FROM "Payment" p
+      JOIN "Member" m ON p."memberId" = m.id
+      WHERE p.id = ${id}
+    `;
+
+    if (!payment || payment.length === 0) {
+      throw new Error('Payment not found');
+    }
+
+    if (payment[0].member_gym_id !== gymId) {
+      throw new Error('Payment not found in this gym');
+    }
+
+    // Update the payment amount
+    return prisma.payment.update({
+      where: { id },
+      data: { amount }
+    });
+  }
+
+  static async deletePayment(id: string, gymId: string): Promise<void> {
+    // First verify the payment exists and belongs to the gym
+    const payment = await prisma.$queryRaw<{ id: string, member_gym_id: string }[]>`
+      SELECT p.id, m."gymId" as member_gym_id
+      FROM "Payment" p
+      JOIN "Member" m ON p."memberId" = m.id
+      WHERE p.id = ${id}
+    `;
+
+    if (!payment || payment.length === 0) {
+      throw new Error('Payment not found');
+    }
+
+    if (payment[0].member_gym_id !== gymId) {
+      throw new Error('Payment not found in this gym');
+    }
+
+    // Delete the payment
+    await prisma.payment.delete({
+      where: { id }
+    });
+  }
 }
 

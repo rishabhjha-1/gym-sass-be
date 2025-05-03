@@ -114,4 +114,24 @@ router.patch('/:id/inactive', async (req: AuthRequest, res) => {
   }
 });
 
+// Update member's membership type
+router.patch('/:id/membership-type', async (req: AuthRequest, res) => {
+  try {
+    const { membershipType } = req.body;
+    
+    if (!membershipType || !Object.values(MembershipType).includes(membershipType)) {
+      return res.status(400).json({ error: 'Invalid membership type' });
+    }
+    
+    const member = await MemberService.updateMember(req.params.id, {
+      membershipType,
+      gymId: req.user!.gymId
+    });
+    
+    res.json(member);
+  } catch (error:any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 export default router;

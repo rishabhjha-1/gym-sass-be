@@ -298,5 +298,29 @@ class PaymentService {
             data: { paymentMethod }
         });
     }
+    static async updatePaymentAmount(id, gymId, amount) {
+        // First verify the payment exists and belongs to the gym
+        const payment = await prisma.$queryRaw `
+      SELECT p.id, m."gymId" as member_gym_id
+      FROM "Payment" p
+      JOIN "Member" m ON p."memberId" = m.id
+      WHERE p.id = ${id}
+    `;
+        if (!payment || payment.length === 0) {
+            throw new Error('Payment not found');
+        }
+        if (payment[0].member_gym_id !== gymId) {
+            throw new Error('Payment not found in this gym');
+        }
+        // Validate amount
+        if (amount <= 0) {
+            throw new Error('Payment amount must be greater than zero');
+        }
+        // Update the payment amount
+        return prisma.payment.update({
+            where: { id },
+            data: { amount }
+        });
+    }
 }
 exports.PaymentService = PaymentService;
