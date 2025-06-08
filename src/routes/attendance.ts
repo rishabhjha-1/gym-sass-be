@@ -1,7 +1,7 @@
 // src/routes/attendanceRoutes.ts
 import express from 'express';
 import { AttendanceService } from '../services/attendanceService';
-import { FaceRecognitionService } from '../services/faceRecognitionService';
+import FaceRecognitionService from '../services/faceRecognitionService';
 import { AttendanceSchema, PaginationSchema } from '../zod';
 import { authenticateToken, authorizeGymAccess, AuthRequest } from '../middleware/auth';
 import multer from 'multer';
@@ -33,7 +33,8 @@ router.post('/face', upload.single('faceImage'), async (req: FaceAuthRequest, re
     }
 
     // Verify face
-    const isVerified = await FaceRecognitionService.verifyFace(req.file.buffer, memberId);
+    const faceService = FaceRecognitionService.getInstance();
+    const isVerified = await faceService.verifyFace(req.file.buffer, memberId);
     if (!isVerified) {
       return res.status(401).json({ error: 'Face verification failed' });
     }
@@ -114,11 +115,9 @@ router.post('/register-face', upload.single('faceImage'), async (req: FaceAuthRe
       return res.status(400).json({ error: 'Member ID is required' });
     }
 
-    // Upload face image to S3
-    const photoUrl = await FaceRecognitionService.uploadFaceImage(req.file.buffer, memberId);
-
-    // Index face in Rekognition collection
-    await FaceRecognitionService.indexFace(req.file.buffer, memberId);
+    // Upload face image
+    const faceService = FaceRecognitionService.getInstance();
+    const photoUrl = await faceService.indexFace(req.file.buffer, memberId);
 
     // Update member's photo URL
     await prisma.member.update({

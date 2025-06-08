@@ -2,6 +2,7 @@
 import { PrismaClient, Payment, PaymentStatus } from '@prisma/client';
 import { RevenueFilter, PaginatedResponse } from '../type';
 import moment from 'moment';
+import { WhatsAppService } from './whatsappService';
 
 const prisma = new PrismaClient();
 
@@ -432,6 +433,30 @@ export class PaymentService {
     await prisma.payment.delete({
       where: { id }
     });
+  }
+
+  static async recordPayment(paymentId: string, paymentMethod: string): Promise<Payment> {
+    try {
+      const payment = await prisma.payment.update({
+        where: { id: paymentId },
+        data: {
+          status: PaymentStatus.PAID,
+          paidDate: new Date(),
+          paymentMethod
+        },
+        include: {
+          member: true
+        }
+      });
+
+      // Send WhatsApp confirmation
+      await WhatsAppService.sendPaymentConfirmation(payment.member, payment);
+
+      return payment;
+    } catch (error) {
+      console.error('Failed to record payment:', error);
+      throw new Error('Failed to record payment');
+    }
   }
 }
 
