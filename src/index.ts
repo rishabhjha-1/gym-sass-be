@@ -9,6 +9,7 @@ import memberRoutes from './routes/member';
 import attendanceRoutes from './routes/attendance';
 import paymentRoutes from './routes/payment';
 import gymRoutes from './routes/gym';
+import './cron/paymentNotifications';
 
 // Load environment variables
 dotenv.config();
@@ -23,8 +24,10 @@ app.use(cors({
   origin: [ 'https://gym.nexgenbattles.com','http://localhost:3000','http://localhost:5173'],
   credentials: true
 }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+
+// Increase payload size limit to 50MB
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Rate limiting
 const limiter = rateLimit({
