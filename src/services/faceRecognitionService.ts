@@ -3,8 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import cloudinary from 'cloudinary';
 import path from 'path';
 import fs from 'fs';
-// @ts-ignore
-import imageDiff from 'image-diff';
+import { PrismaClient } from '@prisma/client';
 
 // Configure Cloudinary
 (cloudinary.v2 as any).config({
@@ -12,6 +11,8 @@ import imageDiff from 'image-diff';
   api_key: process.env.CLOUDINARY_API_KEY || '',
   api_secret: process.env.CLOUDINARY_API_SECRET || ''
 });
+
+const prisma = new PrismaClient();
 
 interface CloudinaryUploadResponse {
   secure_url: string;
@@ -139,49 +140,49 @@ class FaceRecognitionService {
         sharp(face2).grayscale().resize(100, 100).toBuffer()
       ]);
 
-      // Save temporary files for image-diff
-      const tempDir = path.join(__dirname, '../../temp');
-      if (!fs.existsSync(tempDir)) {
-        fs.mkdirSync(tempDir);
-      }
-
-      const temp1 = path.join(tempDir, 'face1.jpg');
-      const temp2 = path.join(tempDir, 'face2.jpg');
-      const diffOutput = path.join(tempDir, 'diff.png');
-
-      await Promise.all([
-        fs.promises.writeFile(temp1, processed1),
-        fs.promises.writeFile(temp2, processed2)
+      // Get image data
+      const [data1, data2] = await Promise.all([
+        sharp(processed1).raw().toBuffer(),
+        sharp(processed2).raw().toBuffer()
       ]);
 
-      // Compare images
-      return new Promise((resolve, reject) => {
-        imageDiff.getFullResult({
-          actualImage: temp1,
-          expectedImage: temp2,
-          diffImage: diffOutput,
-          shadow: true
-        }, (err: Error | null, result: { total: number }) => {
-          // Clean up temp files
-          Promise.all([
-            fs.promises.unlink(temp1),
-            fs.promises.unlink(temp2),
-            fs.promises.unlink(diffOutput)
-          ]).catch(console.error);
+      // Calculate mean squared error and histogram
+      let totalDiff = 0;
+      const histogram1 = new Array(256).fill(0);
+      const histogram2 = new Array(256).fill(0);
 
-          if (err) {
-            reject(err);
-            return;
-          }
+      for (let i = 0; i < data1.length; i++) {
+        const diff = Math.abs(data1[i] - data2[i]);
+        totalDiff += diff * diff;
+        
+        // Build histograms
+        histogram1[data1[i]]++;
+        histogram2[data2[i]]++;
+      }
 
-          // Calculate similarity (lower total means more similar)
-          const similarity = 1 - (result.total / (100 * 100 * 255));
-          const isMatch = similarity > 0.8; // 80% similarity threshold
-          
-          console.log('Face comparison result:', { similarity, isMatch });
-          resolve(isMatch);
-        });
+      // Calculate MSE
+      const mse = totalDiff / data1.length;
+      
+      // Calculate histogram similarity
+      let histogramDiff = 0;
+      for (let i = 0; i < 256; i++) {
+        histogramDiff += Math.abs(histogram1[i] - histogram2[i]);
+      }
+      const histogramSimilarity = 1 - (histogramDiff / (2 * data1.length));
+
+      // Calculate final similarity score
+      const similarity = (1 - (mse / (255 * 255))) * 0.7 + histogramSimilarity * 0.3;
+      const isMatch = similarity > 0.85; // Increased threshold to 85%
+      
+      console.log('Face comparison details:', {
+        mse,
+        histogramSimilarity,
+        finalSimilarity: similarity,
+        isMatch,
+        threshold: 0.85
       });
+
+      return isMatch;
     } catch (error) {
       console.error('Error comparing faces:', error);
       throw error;
@@ -202,15 +203,28 @@ class FaceRecognitionService {
         return false;
       }
 
-      // Get stored face image
-      const storedFace = FaceRecognitionService.faceImages.get(memberId);
-      if (!storedFace) {
+      // Get member's photo URL from database
+      const member = await prisma.member.findUnique({
+        where: { memberId: memberId },
+        select: { photoUrl: true }
+      });
+
+      if (!member || !member.photoUrl) {
         console.log('No face registered for this member');
         return false;
       }
 
+      // Download the stored face image from Cloudinary
+      const response = await fetch(member.photoUrl);
+      if (!response.ok) {
+        console.log('Failed to fetch stored face image');
+        return false;
+      }
+      console.log('member.photoUrl', member.photoUrl);
+      const storedFaceBuffer = Buffer.from(await response.arrayBuffer());
+      console.log('storedFaceBuffer', storedFaceBuffer);  
       // Compare faces
-      const isMatch = await this.compareFaces(storedFace, imageBuffer);
+      const isMatch = await this.compareFaces(storedFaceBuffer, imageBuffer);
       console.log('Face match result:', isMatch);
       
       return isMatch;

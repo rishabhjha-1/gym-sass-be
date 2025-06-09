@@ -9,7 +9,7 @@ export class AttendanceService {
   static async recordAttendance(attendanceData: any): Promise<Attendance> {
     const member = await prisma.member.findUnique({
       where: { 
-        id: attendanceData.memberId,
+        memberId: attendanceData.memberId,
         gymId: attendanceData.gymId
       }
     });
@@ -18,10 +18,10 @@ export class AttendanceService {
       throw new Error('Member not found');
     }
     
-    // Record attendance
+    // Record attendance using member's id instead of memberId
     const attendance = await prisma.attendance.create({
       data: {
-        memberId: attendanceData.memberId,
+        memberId: member.id, // Use member.id instead of memberId
         type: attendanceData.type,
         notes: attendanceData.notes
       }
@@ -29,7 +29,7 @@ export class AttendanceService {
     
     // Update member's last visit
     await prisma.member.update({
-      where: { id: attendanceData.memberId },
+      where: { id: member.id },
       data: { lastVisit: new Date() }
     });
     

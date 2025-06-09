@@ -28,6 +28,7 @@ router.post('/face', upload.single('faceImage'), async (req: FaceAuthRequest, re
     }
 
     const { memberId } = req.body;
+    console.log('memberId', memberId);
     if (!memberId) {
       return res.status(400).json({ error: 'Member ID is required' });
     }
@@ -36,7 +37,7 @@ router.post('/face', upload.single('faceImage'), async (req: FaceAuthRequest, re
     const faceService = FaceRecognitionService.getInstance();
     const isVerified = await faceService.verifyFace(req.file.buffer, memberId);
     if (!isVerified) {
-      return res.status(401).json({ error: 'Face verification failed' });
+      return res.status(500).json({ error: 'Face verification failed' });
     }
 
     // Record attendance
