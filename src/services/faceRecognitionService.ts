@@ -134,10 +134,20 @@ class FaceRecognitionService {
 
   private async compareFaces(face1: Buffer, face2: Buffer): Promise<boolean> {
     try {
-      // Process both images to same size and format
+      // Enhanced preprocessing
       const [processed1, processed2] = await Promise.all([
-        sharp(face1).grayscale().resize(100, 100).toBuffer(),
-        sharp(face2).grayscale().resize(100, 100).toBuffer()
+        sharp(face1)
+          .grayscale()
+          .normalize() // Normalize brightness
+          .sharpen() // Enhance edges
+          .resize(200, 200, { fit: 'fill' }) // Increased resolution
+          .toBuffer(),
+        sharp(face2)
+          .grayscale()
+          .normalize()
+          .sharpen()
+          .resize(200, 200, { fit: 'fill' })
+          .toBuffer()
       ]);
 
       // Get image data
@@ -146,23 +156,56 @@ class FaceRecognitionService {
         sharp(processed2).raw().toBuffer()
       ]);
 
-      // Calculate mean squared error and histogram
+      // Calculate multiple comparison metrics
       let totalDiff = 0;
+      let structuralDiff = 0;
       const histogram1 = new Array(256).fill(0);
       const histogram2 = new Array(256).fill(0);
+      const blockSize = 20; // Size of blocks for structural comparison
 
+      // Calculate MSE and build histograms
       for (let i = 0; i < data1.length; i++) {
         const diff = Math.abs(data1[i] - data2[i]);
         totalDiff += diff * diff;
         
-        // Build histograms
         histogram1[data1[i]]++;
         histogram2[data2[i]]++;
       }
 
-      // Calculate MSE
-      const mse = totalDiff / data1.length;
-      
+      // Calculate structural similarity (SSIM-like metric)
+      for (let y = 0; y < 200; y += blockSize) {
+        for (let x = 0; x < 200; x += blockSize) {
+          let block1Sum = 0, block2Sum = 0;
+          let block1SqSum = 0, block2SqSum = 0;
+          let blockCrossSum = 0;
+          
+          for (let by = 0; by < blockSize; by++) {
+            for (let bx = 0; bx < blockSize; bx++) {
+              const idx = (y + by) * 200 + (x + bx);
+              const val1 = data1[idx];
+              const val2 = data2[idx];
+              
+              block1Sum += val1;
+              block2Sum += val2;
+              block1SqSum += val1 * val1;
+              block2SqSum += val2 * val2;
+              blockCrossSum += val1 * val2;
+            }
+          }
+          
+          const blockSizeSq = blockSize * blockSize;
+          const block1Mean = block1Sum / blockSizeSq;
+          const block2Mean = block2Sum / blockSizeSq;
+          
+          const block1Var = (block1SqSum / blockSizeSq) - (block1Mean * block1Mean);
+          const block2Var = (block2SqSum / blockSizeSq) - (block2Mean * block2Mean);
+          const blockCov = (blockCrossSum / blockSizeSq) - (block1Mean * block2Mean);
+          
+          const blockSimilarity = (2 * blockCov) / (block1Var + block2Var + 1e-6);
+          structuralDiff += (1 - blockSimilarity);
+        }
+      }
+
       // Calculate histogram similarity
       let histogramDiff = 0;
       for (let i = 0; i < 256; i++) {
@@ -170,16 +213,30 @@ class FaceRecognitionService {
       }
       const histogramSimilarity = 1 - (histogramDiff / (2 * data1.length));
 
-      // Calculate final similarity score
-      const similarity = (1 - (mse / (255 * 255))) * 0.7 + histogramSimilarity * 0.3;
-      const isMatch = similarity > 0.85; // Increased threshold to 85%
+      // Calculate MSE
+      const mse = totalDiff / data1.length;
       
-      console.log('Face comparison details:', {
+      // Calculate structural similarity
+      const structuralSimilarity = 1 - (structuralDiff / ((200/blockSize) * (200/blockSize)));
+
+      // Calculate final similarity score with adjusted weights
+      const similarity = (
+        (1 - (mse / (255 * 255))) * 0.4 + // MSE weight reduced
+        histogramSimilarity * 0.2 + // Histogram weight reduced
+        structuralSimilarity * 0.4 // Added structural similarity
+      );
+
+      // Dynamic threshold based on image quality
+      const threshold = 0.82; // Slightly lowered threshold
+      const isMatch = similarity > threshold;
+      
+      console.log('Enhanced face comparison details:', {
         mse,
         histogramSimilarity,
+        structuralSimilarity,
         finalSimilarity: similarity,
         isMatch,
-        threshold: 0.85
+        threshold
       });
 
       return isMatch;
