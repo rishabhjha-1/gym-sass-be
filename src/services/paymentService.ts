@@ -306,15 +306,30 @@ export class PaymentService {
     if (payment[0].member_gym_id !== gymId) {
       throw new Error('Payment not found in this gym');
     }
-
+    
     // Update the payment status
-    return prisma.payment.update({
+    const updatedPayment = await prisma.payment.update({
       where: { id },
       data: { 
         status,
         paidDate: status === PaymentStatus.PAID ? new Date() : undefined
+      },
+      include: {
+        member: true // Include member data for notification
       }
     });
+
+    // Send WhatsApp notification if payment is marked as PAID
+    if (status === PaymentStatus.PAID && updatedPayment.member) {
+      try {
+        await WhatsAppService.sendPaymentConfirmation(updatedPayment.member, updatedPayment);
+      } catch (error) {
+        console.error('Failed to send payment confirmation WhatsApp:', error);
+        // Don't throw error here as the payment was already updated successfully
+      }
+    }
+
+    return updatedPayment;
   }
 
   static async updatePaymentMethod(id: string, gymId: string, paymentMethod: string): Promise<Payment> {

@@ -4,6 +4,9 @@ import cloudinary from 'cloudinary';
 import path from 'path';
 import fs from 'fs';
 import { PrismaClient } from '@prisma/client';
+import * as faceapi from 'face-api.js';
+import { Canvas, Image, ImageData } from 'canvas';
+import { FaceDetection } from 'face-api.js';
 
 // Configure Cloudinary
 (cloudinary.v2 as any).config({
@@ -13,6 +16,19 @@ import { PrismaClient } from '@prisma/client';
 });
 
 const prisma = new PrismaClient();
+
+// Configure face-api.js
+const canvas = new Canvas(1, 1);
+const image = new Image();
+const imageData = new ImageData(1, 1);
+
+faceapi.env.monkeyPatch({
+  Canvas: canvas.constructor as any,
+  Image: image.constructor as any,
+  ImageData: imageData.constructor as any,
+  createCanvasElement: () => new Canvas(1, 1) as any,
+  createImageElement: () => new Image() as any
+});
 
 interface CloudinaryUploadResponse {
   secure_url: string;
@@ -39,6 +55,11 @@ class FaceRecognitionService {
   private static instance: FaceRecognitionService;
   private isInitialized: boolean = false;
   private static faceImages: Map<string, Buffer> = new Map();
+  private static readonly FACE_DETECTION_OPTIONS = new faceapi.TinyFaceDetectorOptions({ 
+    inputSize: 416,
+    scoreThreshold: 0.5 
+  });
+  private static readonly FACE_MATCH_THRESHOLD = 0.6;
 
   private constructor() {}
 
@@ -57,6 +78,16 @@ class FaceRecognitionService {
 
     try {
       console.log('Initializing face recognition service...');
+      
+      // Load face-api.js models
+      const modelsPath = path.join(__dirname, '../../models');
+      await Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromDisk(modelsPath),
+        faceapi.nets.faceLandmark68Net.loadFromDisk(modelsPath),
+        faceapi.nets.faceRecognitionNet.loadFromDisk(modelsPath),
+        faceapi.nets.faceExpressionNet.loadFromDisk(modelsPath)
+      ]);
+
       this.isInitialized = true;
       console.log('Face recognition service initialized successfully');
     } catch (error) {
@@ -69,27 +100,55 @@ class FaceRecognitionService {
     try {
       console.log('Processing image for face detection...');
       
-      // Convert image to grayscale and resize
-      const processedImage = await sharp(imageBuffer)
-        .grayscale()
-        .resize(100, 100)
-        .toBuffer();
-
-      // Calculate image statistics
-      const stats = await sharp(processedImage).stats();
-      const mean = stats.channels[0].mean;
-      const stdev = stats.channels[0].stdev;
-
-      // Simple face detection based on image statistics
-      // Faces typically have higher contrast and specific brightness patterns
-      const hasFace = mean > 50 && mean < 200 && stdev > 30;
+      // Convert buffer to HTMLImageElement
+      const img = await this.bufferToImage(imageBuffer);
       
+      // Detect faces
+      const detections = await faceapi.detectAllFaces(
+        img as any, 
+        FaceRecognitionService.FACE_DETECTION_OPTIONS
+      );
+
+      const hasFace = detections.length > 0;
       console.log(`Face detection result: ${hasFace}`);
       return hasFace;
     } catch (error) {
       console.error('Error detecting face:', error);
       throw error;
     }
+  }
+
+  private async bufferToImage(buffer: Buffer): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      try {
+        // Create a temporary file to store the image
+        const tempDir = path.join(__dirname, '../../temp');
+        if (!fs.existsSync(tempDir)) {
+          fs.mkdirSync(tempDir, { recursive: true });
+        }
+        
+        const tempFilePath = path.join(tempDir, `temp-${uuidv4()}.jpg`);
+        
+        // Write buffer to temporary file
+        fs.writeFileSync(tempFilePath, buffer);
+        
+        const img = new Image();
+        img.onload = () => {
+          // Clean up the temporary file
+          fs.unlinkSync(tempFilePath);
+          resolve(img as any);
+        };
+        img.onerror = (err) => {
+          // Clean up the temporary file
+          fs.unlinkSync(tempFilePath);
+          reject(err);
+        };
+        
+        img.src = tempFilePath;
+      } catch (error) {
+        reject(error);
+      }
+    });
   }
 
   private async uploadFaceImage(imageBuffer: Buffer): Promise<CloudinaryUploadResponse> {
@@ -134,109 +193,42 @@ class FaceRecognitionService {
 
   private async compareFaces(face1: Buffer, face2: Buffer): Promise<boolean> {
     try {
-      // Enhanced preprocessing
-      const [processed1, processed2] = await Promise.all([
-        sharp(face1)
-          .grayscale()
-          .normalize() // Normalize brightness
-          .sharpen() // Enhance edges
-          .resize(200, 200, { fit: 'fill' }) // Increased resolution
-          .toBuffer(),
-        sharp(face2)
-          .grayscale()
-          .normalize()
-          .sharpen()
-          .resize(200, 200, { fit: 'fill' })
-          .toBuffer()
+      // Convert buffers to images
+      const [img1, img2] = await Promise.all([
+        this.bufferToImage(face1),
+        this.bufferToImage(face2)
       ]);
 
-      // Get image data
-      const [data1, data2] = await Promise.all([
-        sharp(processed1).raw().toBuffer(),
-        sharp(processed2).raw().toBuffer()
+      // Detect faces and compute descriptors
+      const [detections1, detections2] = await Promise.all([
+        faceapi.detectAllFaces(img1 as any, FaceRecognitionService.FACE_DETECTION_OPTIONS)
+          .withFaceLandmarks()
+          .withFaceDescriptors(),
+        faceapi.detectAllFaces(img2 as any, FaceRecognitionService.FACE_DETECTION_OPTIONS)
+          .withFaceLandmarks()
+          .withFaceDescriptors()
       ]);
 
-      // Calculate multiple comparison metrics
-      let totalDiff = 0;
-      let structuralDiff = 0;
-      const histogram1 = new Array(256).fill(0);
-      const histogram2 = new Array(256).fill(0);
-      const blockSize = 20; // Size of blocks for structural comparison
-
-      // Calculate MSE and build histograms
-      for (let i = 0; i < data1.length; i++) {
-        const diff = Math.abs(data1[i] - data2[i]);
-        totalDiff += diff * diff;
-        
-        histogram1[data1[i]]++;
-        histogram2[data2[i]]++;
+      if (detections1.length === 0 || detections2.length === 0) {
+        console.log('No faces detected in one or both images');
+        return false;
       }
 
-      // Calculate structural similarity (SSIM-like metric)
-      for (let y = 0; y < 200; y += blockSize) {
-        for (let x = 0; x < 200; x += blockSize) {
-          let block1Sum = 0, block2Sum = 0;
-          let block1SqSum = 0, block2SqSum = 0;
-          let blockCrossSum = 0;
-          
-          for (let by = 0; by < blockSize; by++) {
-            for (let bx = 0; bx < blockSize; bx++) {
-              const idx = (y + by) * 200 + (x + bx);
-              const val1 = data1[idx];
-              const val2 = data2[idx];
-              
-              block1Sum += val1;
-              block2Sum += val2;
-              block1SqSum += val1 * val1;
-              block2SqSum += val2 * val2;
-              blockCrossSum += val1 * val2;
-            }
-          }
-          
-          const blockSizeSq = blockSize * blockSize;
-          const block1Mean = block1Sum / blockSizeSq;
-          const block2Mean = block2Sum / blockSizeSq;
-          
-          const block1Var = (block1SqSum / blockSizeSq) - (block1Mean * block1Mean);
-          const block2Var = (block2SqSum / blockSizeSq) - (block2Mean * block2Mean);
-          const blockCov = (blockCrossSum / blockSizeSq) - (block1Mean * block2Mean);
-          
-          const blockSimilarity = (2 * blockCov) / (block1Var + block2Var + 1e-6);
-          structuralDiff += (1 - blockSimilarity);
-        }
-      }
-
-      // Calculate histogram similarity
-      let histogramDiff = 0;
-      for (let i = 0; i < 256; i++) {
-        histogramDiff += Math.abs(histogram1[i] - histogram2[i]);
-      }
-      const histogramSimilarity = 1 - (histogramDiff / (2 * data1.length));
-
-      // Calculate MSE
-      const mse = totalDiff / data1.length;
-      
-      // Calculate structural similarity
-      const structuralSimilarity = 1 - (structuralDiff / ((200/blockSize) * (200/blockSize)));
-
-      // Calculate final similarity score with adjusted weights
-      const similarity = (
-        (1 - (mse / (255 * 255))) * 0.4 + // MSE weight reduced
-        histogramSimilarity * 0.2 + // Histogram weight reduced
-        structuralSimilarity * 0.4 // Added structural similarity
+      // Compare face descriptors
+      const distance = faceapi.euclideanDistance(
+        detections1[0].descriptor,
+        detections2[0].descriptor
       );
 
-      // Dynamic threshold based on image quality
-      const threshold = 0.82; // Slightly lowered threshold
-      const isMatch = similarity > threshold;
-      
-      console.log('Enhanced face comparison details:', {
-        mse,
-        histogramSimilarity,
-        structuralSimilarity,
-        finalSimilarity: similarity,
+      // Convert distance to similarity score (0-1)
+      const similarity = 1 - (distance / 2);
+      const isMatch = similarity > FaceRecognitionService.FACE_MATCH_THRESHOLD;
+
+      console.log('Face comparison details:', {
+        distance,
+        similarity,
         isMatch,
-        threshold
+        threshold: FaceRecognitionService.FACE_MATCH_THRESHOLD
       });
 
       return isMatch;
@@ -277,9 +269,9 @@ class FaceRecognitionService {
         console.log('Failed to fetch stored face image');
         return false;
       }
-      console.log('member.photoUrl', member.photoUrl);
+
       const storedFaceBuffer = Buffer.from(await response.arrayBuffer());
-      console.log('storedFaceBuffer', storedFaceBuffer);  
+      
       // Compare faces
       const isMatch = await this.compareFaces(storedFaceBuffer, imageBuffer);
       console.log('Face match result:', isMatch);
