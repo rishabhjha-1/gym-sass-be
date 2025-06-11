@@ -5,7 +5,8 @@ import FaceRecognitionService from '../services/faceRecognitionService';
 import { AttendanceSchema, PaginationSchema } from '../zod';
 import { authenticateToken, authorizeGymAccess, AuthRequest } from '../middleware/auth';
 import multer from 'multer';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, PaymentStatus } from '@prisma/client';
+import { WhatsAppService } from '../services/whatsappService';
 
 const router = express.Router();
 const upload = multer();
@@ -31,6 +32,36 @@ router.post('/face', upload.single('faceImage'), async (req: FaceAuthRequest, re
     console.log('memberId', memberId);
     if (!memberId) {
       return res.status(400).json({ error: 'Member ID is required' });
+    }
+
+    // Check for overdue payments
+    const member = await prisma.member.findUnique({
+      where: { id: memberId },
+      include: {
+        payments: {
+          where: {
+            status: PaymentStatus.PENDING,
+            dueDate: {
+              lt: new Date()
+            }
+          }
+        }
+      }
+    });
+
+    if (member && member.payments.length > 0) {
+      // Get gym owner's phone number
+      const gymOwner = await prisma.user.findFirst({
+        where: {
+          gymId: req.user!.gymId,
+          role: 'OWNER'
+        }
+      });
+
+      if (gymOwner && gymOwner.phone) {
+        // Send WhatsApp notification to gym owner using the public method
+        await WhatsAppService.sendOverduePaymentAlert(gymOwner.phone, member, member.payments);
+      }
     }
 
     // Verify face
