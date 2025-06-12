@@ -6,7 +6,7 @@ import { AttendanceSchema, PaginationSchema } from '../zod';
 import { authenticateToken, authorizeGymAccess, AuthRequest } from '../middleware/auth';
 import multer from 'multer';
 import { PrismaClient, PaymentStatus } from '@prisma/client';
-import { WhatsAppService } from '../services/whatsappService';
+import { Message91Service } from '../services/message91Service';
 
 const router = express.Router();
 const upload = multer();
@@ -59,8 +59,16 @@ router.post('/face', upload.single('faceImage'), async (req: FaceAuthRequest, re
       });
 
       if (gymOwner && gymOwner.phone) {
-        // Send WhatsApp notification to gym owner using the public method
-        await WhatsAppService.sendOverduePaymentAlert(gymOwner.phone, member, member.payments);
+        // Send Message91 notification to gym owner
+        const message = `⚠️ Overdue Payment Alert\n\nMember ${member.firstName} ${member.lastName} (ID: ${member.memberId}) is trying to mark attendance but has overdue payments:\n\n` +
+          member.payments.map(payment => 
+            `• Amount: $${payment.amount}\n` +
+            `• Due Date: ${new Date(payment.dueDate).toLocaleDateString()}\n` +
+            `• Invoice: ${payment.invoiceNumber}\n`
+          ).join('\n') +
+          `\nMember's Photo: ${member.photoUrl || 'No photo available'}`;
+
+        await Message91Service.broadcastMessage(message, req.user!.gymId);
       }
     }
 
