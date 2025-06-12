@@ -7,6 +7,7 @@ import { PrismaClient } from '@prisma/client';
 import * as faceapi from 'face-api.js';
 import { Canvas, Image, ImageData } from 'canvas';
 import { FaceDetection } from 'face-api.js';
+import * as tf from '@tensorflow/tfjs-node';
 
 // Configure Cloudinary
 (cloudinary.v2 as any).config({
@@ -22,6 +23,7 @@ const canvas = new Canvas(1, 1);
 const image = new Image();
 const imageData = new ImageData(1, 1);
 
+// Initialize face-api.js environment
 faceapi.env.monkeyPatch({
   Canvas: canvas.constructor as any,
   Image: image.constructor as any,
