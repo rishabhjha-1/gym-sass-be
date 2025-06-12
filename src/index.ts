@@ -1,4 +1,5 @@
 // src/index.ts
+require('@tensorflow/tfjs-node');
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
