@@ -2,7 +2,7 @@
 import { PrismaClient, Payment, PaymentStatus } from '@prisma/client';
 import { RevenueFilter, PaginatedResponse } from '../type';
 import moment from 'moment';
-import { WhatsAppService } from './whatsappService';
+import { Message91Service } from './message91Service';
 
 const prisma = new PrismaClient();
 
@@ -319,12 +319,13 @@ export class PaymentService {
       }
     });
 
-    // Send WhatsApp notification if payment is marked as PAID
+    // Send Message91 notification if payment is marked as PAID
     if (status === PaymentStatus.PAID && updatedPayment.member) {
       try {
-        await WhatsAppService.sendPaymentConfirmation(updatedPayment.member, updatedPayment);
+        console.log('sending payment confirmation to', updatedPayment.member.phone);  
+        await Message91Service.sendPaymentConfirmation(updatedPayment.member, updatedPayment);
       } catch (error) {
-        console.error('Failed to send payment confirmation WhatsApp:', error);
+        console.error('Failed to send payment confirmation via Message91:', error);
         // Don't throw error here as the payment was already updated successfully
       }
     }
@@ -464,8 +465,8 @@ export class PaymentService {
         }
       });
 
-      // Send WhatsApp confirmation
-      await WhatsAppService.sendPaymentConfirmation(payment.member, payment);
+      // Send Message91 confirmation
+      await Message91Service.sendPaymentConfirmation(payment.member, payment);
 
       return payment;
     } catch (error) {
