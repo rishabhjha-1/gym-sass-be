@@ -5,7 +5,7 @@ const prisma = new PrismaClient();
 
 // Validate required environment variables
 const MESSAGE91_AUTH_KEY = "455843ACIz3YcgyL2U6849dee9P1";
-const MESSAGE91_SENDER_ID = "MSGIND";
+const MESSAGE91_SENDER_ID = "msg91";
 
 if (!MESSAGE91_AUTH_KEY) {
   console.warn('⚠️ Message91 integration is not properly configured. Please set MESSAGE91_AUTH_KEY environment variable.');
