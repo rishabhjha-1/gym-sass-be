@@ -8,6 +8,7 @@ const express_1 = __importDefault(require("express"));
 const memberService_1 = require("../services/memberService");
 const zod_1 = require("../zod");
 const auth_1 = require("../middleware/auth");
+const type_1 = require("../type");
 const router = express_1.default.Router();
 // Protect all routes
 router.use(auth_1.authenticateToken);
@@ -107,6 +108,23 @@ router.patch('/:id/inactive', async (req, res) => {
     try {
         const member = await memberService_1.MemberService.updateMember(req.params.id, {
             status: 'INACTIVE',
+            gymId: req.user.gymId
+        });
+        res.json(member);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Update member's membership type
+router.patch('/:id/membership-type', async (req, res) => {
+    try {
+        const { membershipType } = req.body;
+        if (!membershipType || !Object.values(type_1.MembershipType).includes(membershipType)) {
+            return res.status(400).json({ error: 'Invalid membership type' });
+        }
+        const member = await memberService_1.MemberService.updateMember(req.params.id, {
+            membershipType,
             gymId: req.user.gymId
         });
         res.json(member);

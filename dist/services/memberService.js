@@ -8,6 +8,7 @@ exports.MemberService = void 0;
 const client_1 = require("@prisma/client");
 const moment_1 = __importDefault(require("moment"));
 const uuid_1 = require("uuid");
+const faceRecognitionService_1 = __importDefault(require("./faceRecognitionService"));
 const prisma = new client_1.PrismaClient();
 class MemberService {
     static async createMember(memberData) {
@@ -21,11 +22,30 @@ class MemberService {
             }
             // Generate a unique memberId using UUID
             const memberId = `MEM${(0, uuid_1.v4)().split('-')[0]}`;
+            let photoUrl = memberData.photoUrl;
+            // If photoUrl is a base64 string, upload it to Cloudinary
+            if (photoUrl && photoUrl.startsWith('data:image')) {
+                try {
+                    // Convert base64 to buffer
+                    const base64Data = photoUrl.replace(/^data:image\/\w+;base64,/, '');
+                    const imageBuffer = Buffer.from(base64Data, 'base64');
+                    // Upload to Cloudinary
+                    photoUrl = await this.uploadFaceImage(imageBuffer);
+                    // Index the face for future recognition
+                    await this.indexFace(imageBuffer, memberId);
+                }
+                catch (error) {
+                    console.error('Failed to upload member photo:', error);
+                    // Continue without photo if upload fails
+                    photoUrl = undefined;
+                }
+            }
             // Create member
             const member = await prisma.member.create({
                 data: {
                     ...memberData,
                     memberId,
+                    photoUrl,
                     dateOfBirth: new Date(memberData.dateOfBirth),
                     joinDate: new Date(),
                     status: memberData.status || client_1.MemberStatus.ACTIVE
@@ -292,6 +312,14 @@ class MemberService {
             default:
                 throw new Error('Invalid membership type');
         }
+    }
+    static async uploadFaceImage(imageBuffer) {
+        const faceService = faceRecognitionService_1.default.getInstance();
+        return faceService.indexFace(imageBuffer, (0, uuid_1.v4)());
+    }
+    static async indexFace(imageBuffer, memberId) {
+        const faceService = faceRecognitionService_1.default.getInstance();
+        return faceService.indexFace(imageBuffer, memberId);
     }
 }
 exports.MemberService = MemberService;

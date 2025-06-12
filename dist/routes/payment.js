@@ -59,6 +59,16 @@ router.get('/pending', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+// Get paid or upcoming due payments (within 5 days)
+router.get('/paid-or-upcoming', async (req, res) => {
+    try {
+        const payments = await paymentService_1.PaymentService.getPaidOrUpcomingPayments(req.user.gymId);
+        res.json(payments);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 // Get revenue statistics
 router.get('/stats', async (req, res) => {
     try {
@@ -104,6 +114,20 @@ router.patch('/:id/method', async (req, res) => {
             return res.status(400).json({ error: 'Payment method is required' });
         }
         const payment = await paymentService_1.PaymentService.updatePaymentMethod(req.params.id, req.user.gymId, paymentMethod);
+        res.json(payment);
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Update payment amount
+router.patch('/:id/amount', async (req, res) => {
+    try {
+        const { amount } = req.body;
+        if (typeof amount !== 'number' || amount <= 0) {
+            return res.status(400).json({ error: 'Valid amount is required' });
+        }
+        const payment = await paymentService_1.PaymentService.updatePaymentAmount(req.params.id, req.user.gymId, amount);
         res.json(payment);
     }
     catch (error) {
@@ -156,6 +180,16 @@ router.post('/notify/pending', async (req, res) => {
             failed: notifications.filter(n => !n.success).length,
             details: notifications
         });
+    }
+    catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+// Delete payment
+router.delete('/:id', async (req, res) => {
+    try {
+        await paymentService_1.PaymentService.deletePayment(req.params.id, req.user.gymId);
+        res.status(204).send();
     }
     catch (error) {
         res.status(500).json({ error: error.message });

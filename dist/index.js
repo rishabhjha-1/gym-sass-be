@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 // src/index.ts
+require("@tensorflow/tfjs-node");
 const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
@@ -14,6 +15,7 @@ const member_1 = __importDefault(require("./routes/member"));
 const attendance_1 = __importDefault(require("./routes/attendance"));
 const payment_1 = __importDefault(require("./routes/payment"));
 const gym_1 = __importDefault(require("./routes/gym"));
+require("./cron/paymentNotifications");
 // Load environment variables
 dotenv_1.default.config();
 // Initialize express app
@@ -21,9 +23,13 @@ const app = (0, express_1.default)();
 const PORT = process.env.PORT || 3000;
 // Middleware
 app.use((0, helmet_1.default)());
-app.use((0, cors_1.default)());
-app.use(express_1.default.json());
-app.use(express_1.default.urlencoded({ extended: true }));
+app.use((0, cors_1.default)({
+    origin: ['https://gym.nexgenbattles.com', 'http://localhost:3000', 'http://localhost:5173'],
+    credentials: true
+}));
+// Increase payload size limit to 50MB
+app.use(express_1.default.json({ limit: '50mb' }));
+app.use(express_1.default.urlencoded({ extended: true, limit: '50mb' }));
 // Rate limiting
 const limiter = (0, express_rate_limit_1.default)({
     windowMs: 15 * 60 * 1000, // 15 minutes
