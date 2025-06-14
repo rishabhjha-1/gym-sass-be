@@ -68,13 +68,14 @@ class FaceRecognitionService {
   
   // Optimized detection options for speed
   private static readonly FACE_DETECTION_OPTIONS = new faceapi.TinyFaceDetectorOptions({ 
-    inputSize: 160, // Further reduced for faster processing
-    scoreThreshold: 0.3 // More aggressive threshold
+    inputSize: 224, // Increased for better detection
+    scoreThreshold: 0.7 // Much stricter threshold
   });
-  private static readonly FACE_MATCH_THRESHOLD = 0.55; // Slightly adjusted for speed
-  private static readonly MAX_IMAGE_SIZE = 300; // Further reduced maximum dimension
-  private static readonly DESCRIPTOR_COMPARE_LENGTH = 64; // Reduced comparison length
-  private static readonly EARLY_EXIT_THRESHOLD = 0.3; // Early exit threshold for comparison
+  private static readonly FACE_MATCH_THRESHOLD = 0.7; // Much stricter similarity requirement
+  private static readonly MAX_IMAGE_SIZE = 400; // Increased for better quality
+  private static readonly DESCRIPTOR_COMPARE_LENGTH = 256; // Compare more features
+  private static readonly EARLY_EXIT_THRESHOLD = 0.5; // Stricter early exit
+  private static readonly MIN_FACE_SIZE = 100; // Minimum face size in pixels
 
   private constructor() {}
 
@@ -162,19 +163,30 @@ class FaceRecognitionService {
     try {
       console.log('Processing image for face detection...');
       
-      // Preprocess image for faster detection
       const processedBuffer = await this.preprocessImage(imageBuffer);
       const img = await this.bufferToImageDirect(processedBuffer);
       
-      // Detect faces with optimized options
       const detections = await faceapi.detectAllFaces(
         img as any, 
         FaceRecognitionService.FACE_DETECTION_OPTIONS
       );
 
-      const hasFace = detections.length > 0;
-      console.log(`Face detection result: ${hasFace}`);
-      return hasFace;
+      // Check if exactly one face is detected
+      if (detections.length !== 1) {
+        console.log(`Invalid number of faces detected: ${detections.length}`);
+        return false;
+      }
+
+      // Check face size
+      const detection = detections[0];
+      const faceSize = Math.max(detection.box.width, detection.box.height);
+      if (faceSize < FaceRecognitionService.MIN_FACE_SIZE) {
+        console.log(`Face too small: ${faceSize}px`);
+        return false;
+      }
+
+      console.log(`Face detection result: true (size: ${faceSize}px)`);
+      return true;
     } catch (error) {
       console.error('Error detecting face:', error);
       throw error;
@@ -184,7 +196,6 @@ class FaceRecognitionService {
   // Get face descriptor with caching and optimization
   private async getFaceDescriptor(imageBuffer: Buffer, cacheKey?: string): Promise<Float32Array | null> {
     try {
-      // Check cache first
       if (cacheKey) {
         const cached = FaceRecognitionService.faceDescriptorCache.get(cacheKey);
         if (cached && Date.now() - cached.timestamp < FaceRecognitionService.CACHE_TTL) {
@@ -192,11 +203,10 @@ class FaceRecognitionService {
         }
       }
 
-      // Preprocess image with reduced quality
       const processedBuffer = await this.preprocessImage(imageBuffer);
       const img = await this.bufferToImageDirect(processedBuffer);
       
-      // Get face descriptor with optimized options
+      // Get face detection with landmarks and descriptor
       const detection = await faceapi.detectSingleFace(
         img as any, 
         FaceRecognitionService.FACE_DETECTION_OPTIONS
@@ -208,7 +218,13 @@ class FaceRecognitionService {
         return null;
       }
 
-      // Cache the descriptor
+      // Validate landmarks
+      const landmarks = detection.landmarks;
+      if (!landmarks || !this.validateLandmarks(landmarks)) {
+        console.log('Invalid face landmarks detected');
+        return null;
+      }
+
       if (cacheKey) {
         FaceRecognitionService.faceDescriptorCache.set(cacheKey, {
           descriptor: detection.descriptor,
@@ -220,6 +236,45 @@ class FaceRecognitionService {
     } catch (error) {
       console.error('Error getting face descriptor:', error);
       return null;
+    }
+  }
+
+  // Validate face landmarks
+  private validateLandmarks(landmarks: any): boolean {
+    try {
+      // Check if all required landmarks are present
+      if (!landmarks.positions || landmarks.positions.length < 68) {
+        return false;
+      }
+
+      // Check for symmetry in facial features
+      const leftEye = landmarks.getLeftEye();
+      const rightEye = landmarks.getRightEye();
+      const nose = landmarks.getNose();
+      const mouth = landmarks.getMouth();
+
+      if (!leftEye || !rightEye || !nose || !mouth) {
+        return false;
+      }
+
+      // Check if eyes are roughly at the same height
+      const eyeHeightDiff = Math.abs(leftEye[0].y - rightEye[0].y);
+      if (eyeHeightDiff > 10) {
+        return false;
+      }
+
+      // Check if nose is roughly centered
+      const faceWidth = Math.abs(rightEye[rightEye.length - 1].x - leftEye[0].x);
+      const noseCenter = nose[0].x;
+      const faceCenter = leftEye[0].x + faceWidth / 2;
+      if (Math.abs(noseCenter - faceCenter) > faceWidth * 0.2) {
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error validating landmarks:', error);
+      return false;
     }
   }
 
@@ -266,12 +321,10 @@ class FaceRecognitionService {
   // Ultra-optimized face comparison using descriptors with early exit
   private compareFaceDescriptors(descriptor1: Float32Array, descriptor2: Float32Array): boolean {
     try {
-      // Early exit if descriptors are empty
       if (!descriptor1 || !descriptor2 || descriptor1.length !== descriptor2.length) {
         return false;
       }
 
-      // Use a more efficient distance calculation with early exit
       let sum = 0;
       const len = Math.min(descriptor1.length, FaceRecognitionService.DESCRIPTOR_COMPARE_LENGTH);
       
@@ -279,7 +332,6 @@ class FaceRecognitionService {
         const diff = descriptor1[i] - descriptor2[i];
         sum += diff * diff;
         
-        // Early exit if distance is already too large
         if (sum > FaceRecognitionService.EARLY_EXIT_THRESHOLD) {
           return false;
         }
@@ -287,6 +339,10 @@ class FaceRecognitionService {
 
       const distance = Math.sqrt(sum);
       const similarity = 1 - (distance / 2);
+      
+      // Log similarity score for debugging
+      console.log(`Face similarity score: ${similarity}`);
+      
       return similarity > FaceRecognitionService.FACE_MATCH_THRESHOLD;
     } catch (error) {
       console.error('Error comparing face descriptors:', error);
