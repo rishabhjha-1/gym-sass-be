@@ -68,10 +68,11 @@ class FaceRecognitionService {
   
   // Optimized detection options for speed
   private static readonly FACE_DETECTION_OPTIONS = new faceapi.TinyFaceDetectorOptions({ 
-    inputSize: 320, // Reduced from 416 for faster processing
-    scoreThreshold: 0.5 
+    inputSize: 224, // Further reduced from 320 for faster processing
+    scoreThreshold: 0.4 // Slightly lowered threshold for faster detection
   });
   private static readonly FACE_MATCH_THRESHOLD = 0.6;
+  private static readonly MAX_IMAGE_SIZE = 400; // Maximum dimension for processing
 
   private constructor() {}
 
@@ -111,8 +112,15 @@ class FaceRecognitionService {
   // Optimized image processing - resize before detection
   private async preprocessImage(imageBuffer: Buffer): Promise<Buffer> {
     return sharp(imageBuffer)
-      .resize(640, 640, { fit: 'inside', withoutEnlargement: true })
-      .jpeg({ quality: 85 })
+      .resize(FaceRecognitionService.MAX_IMAGE_SIZE, FaceRecognitionService.MAX_IMAGE_SIZE, { 
+        fit: 'inside', 
+        withoutEnlargement: true,
+        fastShrinkOnLoad: true // Enable fast shrinking
+      })
+      .jpeg({ 
+        quality: 75, // Reduced quality for faster processing
+        chromaSubsampling: '4:2:0' // Optimize for speed
+      })
       .toBuffer();
   }
 
@@ -252,19 +260,31 @@ class FaceRecognitionService {
     }
   }
 
-  // Optimized face comparison using descriptors
+  // Optimized face comparison using descriptors with early exit
   private compareFaceDescriptors(descriptor1: Float32Array, descriptor2: Float32Array): boolean {
     try {
-      const distance = faceapi.euclideanDistance(descriptor1, descriptor2);
+      // Early exit if descriptors are empty
+      if (!descriptor1 || !descriptor2 || descriptor1.length !== descriptor2.length) {
+        return false;
+      }
+
+      // Use a more efficient distance calculation
+      let sum = 0;
+      const len = Math.min(descriptor1.length, 128); // Only compare first 128 values for speed
+      
+      for (let i = 0; i < len; i++) {
+        const diff = descriptor1[i] - descriptor2[i];
+        sum += diff * diff;
+        
+        // Early exit if distance is already too large
+        if (sum > 0.5) {
+          return false;
+        }
+      }
+
+      const distance = Math.sqrt(sum);
       const similarity = 1 - (distance / 2);
       const isMatch = similarity > FaceRecognitionService.FACE_MATCH_THRESHOLD;
-
-      console.log('Face comparison details:', {
-        distance,
-        similarity,
-        isMatch,
-        threshold: FaceRecognitionService.FACE_MATCH_THRESHOLD
-      });
 
       return isMatch;
     } catch (error) {
@@ -283,21 +303,17 @@ class FaceRecognitionService {
       console.log('Starting face verification...');
       const startTime = Date.now();
 
-      // Get member's photo URL and cached descriptor
-      const member = await prisma.member.findUnique({
-        where: { memberId: memberId },
-        select: { photoUrl: true }
-      });
+      // Get member's photo URL and cached descriptor in parallel
+      const [member, verificationDescriptor] = await Promise.all([
+        prisma.member.findUnique({
+          where: { memberId: memberId },
+          select: { photoUrl: true }
+        }),
+        this.getFaceDescriptor(imageBuffer)
+      ]);
 
-      if (!member || !member.photoUrl) {
-        console.log('No face registered for this member');
-        return false;
-      }
-
-      // Get face descriptor from verification image
-      const verificationDescriptor = await this.getFaceDescriptor(imageBuffer);
-      if (!verificationDescriptor) {
-        console.log('No face detected in verification image');
+      if (!member?.photoUrl || !verificationDescriptor) {
+        console.log('No face registered or detected');
         return false;
       }
 
