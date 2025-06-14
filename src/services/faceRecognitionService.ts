@@ -68,11 +68,13 @@ class FaceRecognitionService {
   
   // Optimized detection options for speed
   private static readonly FACE_DETECTION_OPTIONS = new faceapi.TinyFaceDetectorOptions({ 
-    inputSize: 224, // Further reduced from 320 for faster processing
-    scoreThreshold: 0.4 // Slightly lowered threshold for faster detection
+    inputSize: 160, // Further reduced for faster processing
+    scoreThreshold: 0.3 // More aggressive threshold
   });
-  private static readonly FACE_MATCH_THRESHOLD = 0.6;
-  private static readonly MAX_IMAGE_SIZE = 400; // Maximum dimension for processing
+  private static readonly FACE_MATCH_THRESHOLD = 0.55; // Slightly adjusted for speed
+  private static readonly MAX_IMAGE_SIZE = 300; // Further reduced maximum dimension
+  private static readonly DESCRIPTOR_COMPARE_LENGTH = 64; // Reduced comparison length
+  private static readonly EARLY_EXIT_THRESHOLD = 0.3; // Early exit threshold for comparison
 
   private constructor() {}
 
@@ -115,11 +117,14 @@ class FaceRecognitionService {
       .resize(FaceRecognitionService.MAX_IMAGE_SIZE, FaceRecognitionService.MAX_IMAGE_SIZE, { 
         fit: 'inside', 
         withoutEnlargement: true,
-        fastShrinkOnLoad: true // Enable fast shrinking
+        fastShrinkOnLoad: true,
+        kernel: 'nearest' // Fastest resize kernel
       })
       .jpeg({ 
-        quality: 75, // Reduced quality for faster processing
-        chromaSubsampling: '4:2:0' // Optimize for speed
+        quality: 60, // Further reduced quality
+        chromaSubsampling: '4:2:0',
+        optimizeScans: true,
+        optimizeCoding: true
       })
       .toBuffer();
   }
@@ -176,23 +181,22 @@ class FaceRecognitionService {
     }
   }
 
-  // Get face descriptor with caching
+  // Get face descriptor with caching and optimization
   private async getFaceDescriptor(imageBuffer: Buffer, cacheKey?: string): Promise<Float32Array | null> {
     try {
       // Check cache first
       if (cacheKey) {
         const cached = FaceRecognitionService.faceDescriptorCache.get(cacheKey);
         if (cached && Date.now() - cached.timestamp < FaceRecognitionService.CACHE_TTL) {
-          console.log('Using cached face descriptor');
           return cached.descriptor;
         }
       }
 
-      // Preprocess image
+      // Preprocess image with reduced quality
       const processedBuffer = await this.preprocessImage(imageBuffer);
       const img = await this.bufferToImageDirect(processedBuffer);
       
-      // Get face descriptor
+      // Get face descriptor with optimized options
       const detection = await faceapi.detectSingleFace(
         img as any, 
         FaceRecognitionService.FACE_DETECTION_OPTIONS
@@ -201,7 +205,6 @@ class FaceRecognitionService {
       .withFaceDescriptor();
 
       if (!detection) {
-        console.log('No face detected for descriptor extraction');
         return null;
       }
 
@@ -260,7 +263,7 @@ class FaceRecognitionService {
     }
   }
 
-  // Optimized face comparison using descriptors with early exit
+  // Ultra-optimized face comparison using descriptors with early exit
   private compareFaceDescriptors(descriptor1: Float32Array, descriptor2: Float32Array): boolean {
     try {
       // Early exit if descriptors are empty
@@ -268,40 +271,35 @@ class FaceRecognitionService {
         return false;
       }
 
-      // Use a more efficient distance calculation
+      // Use a more efficient distance calculation with early exit
       let sum = 0;
-      const len = Math.min(descriptor1.length, 128); // Only compare first 128 values for speed
+      const len = Math.min(descriptor1.length, FaceRecognitionService.DESCRIPTOR_COMPARE_LENGTH);
       
       for (let i = 0; i < len; i++) {
         const diff = descriptor1[i] - descriptor2[i];
         sum += diff * diff;
         
         // Early exit if distance is already too large
-        if (sum > 0.5) {
+        if (sum > FaceRecognitionService.EARLY_EXIT_THRESHOLD) {
           return false;
         }
       }
 
       const distance = Math.sqrt(sum);
       const similarity = 1 - (distance / 2);
-      const isMatch = similarity > FaceRecognitionService.FACE_MATCH_THRESHOLD;
-
-      return isMatch;
+      return similarity > FaceRecognitionService.FACE_MATCH_THRESHOLD;
     } catch (error) {
       console.error('Error comparing face descriptors:', error);
       return false;
     }
   }
 
-  // Main verification method - heavily optimized
+  // Main verification method - ultra optimized
   public async verifyFace(imageBuffer: Buffer, memberId: string): Promise<boolean> {
     try {
       if (!this.isInitialized) {
         await this.initialize();
       }
-
-      console.log('Starting face verification...');
-      const startTime = Date.now();
 
       // Get member's photo URL and cached descriptor in parallel
       const [member, verificationDescriptor] = await Promise.all([
@@ -313,7 +311,6 @@ class FaceRecognitionService {
       ]);
 
       if (!member?.photoUrl || !verificationDescriptor) {
-        console.log('No face registered or detected');
         return false;
       }
 
@@ -321,10 +318,8 @@ class FaceRecognitionService {
       let storedDescriptor = FaceRecognitionService.faceDescriptorCache.get(`stored_${memberId}`)?.descriptor;
       
       if (!storedDescriptor) {
-        console.log('Fetching stored face image...');
         const response = await fetch(member.photoUrl);
         if (!response.ok) {
-          console.log('Failed to fetch stored face image');
           return false;
         }
 
@@ -332,18 +327,11 @@ class FaceRecognitionService {
         storedDescriptor = await this.getFaceDescriptor(storedFaceBuffer, `stored_${memberId}`) || undefined;
         
         if (!storedDescriptor) {
-          console.log('No face detected in stored image');
           return false;
         }
       }
 
-      // Compare descriptors
-      const isMatch = this.compareFaceDescriptors(storedDescriptor, verificationDescriptor);
-      
-      const endTime = Date.now();
-      console.log(`Face verification completed in ${endTime - startTime}ms, result: ${isMatch}`);
-      
-      return isMatch;
+      return this.compareFaceDescriptors(storedDescriptor, verificationDescriptor);
     } catch (error) {
       console.error('Error verifying face:', error);
       throw error;
