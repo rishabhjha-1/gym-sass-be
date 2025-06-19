@@ -8,6 +8,7 @@ import * as faceapi from 'face-api.js';
 import { Canvas, Image, ImageData } from 'canvas';
 import { FaceDetection } from 'face-api.js';
 import * as tf from '@tensorflow/tfjs-node';
+import PythonFaceRecognitionService from './pythonFaceRecognitionService';
 
 // Configure Cloudinary
 (cloudinary.v2 as any).config({
@@ -65,19 +66,19 @@ class FaceRecognitionService {
   private static faceImages: Map<string, Buffer> = new Map();
   private static faceDescriptorCache: Map<string, FaceDescriptorCache> = new Map();
   private static readonly CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+  private pythonService: PythonFaceRecognitionService;
   
   // Optimized detection options for speed
   private static readonly FACE_DETECTION_OPTIONS = new faceapi.TinyFaceDetectorOptions({ 
-    inputSize: 224, // Increased for better detection
-    scoreThreshold: 0.7 // Much stricter threshold
+    inputSize: 320, // Optimal size for speed/accuracy balance
+    scoreThreshold: 0.8 // Stricter threshold for better quality faces
   });
-  private static readonly FACE_MATCH_THRESHOLD = 0.7; // Much stricter similarity requirement
-  private static readonly MAX_IMAGE_SIZE = 400; // Increased for better quality
-  private static readonly DESCRIPTOR_COMPARE_LENGTH = 256; // Compare more features
-  private static readonly EARLY_EXIT_THRESHOLD = 0.5; // Stricter early exit
-  private static readonly MIN_FACE_SIZE = 100; // Minimum face size in pixels
+  private static readonly MAX_IMAGE_SIZE = 320; // Optimal size for processing
+  private static readonly MIN_FACE_SIZE = 80; // Minimum face size in pixels
 
-  private constructor() {}
+  private constructor() {
+    this.pythonService = PythonFaceRecognitionService.getInstance();
+  }
 
   public static getInstance(): FaceRecognitionService {
     if (!FaceRecognitionService.instance) {
@@ -95,14 +96,20 @@ class FaceRecognitionService {
     try {
       console.log('Initializing face recognition service...');
       
-      // Load face-api.js models
-      const modelsPath = path.join(__dirname, '../../models');
-      await Promise.all([
-        faceapi.nets.tinyFaceDetector.loadFromDisk(modelsPath),
-        faceapi.nets.faceLandmark68Net.loadFromDisk(modelsPath),
-        faceapi.nets.faceRecognitionNet.loadFromDisk(modelsPath)
-        // Removed faceExpressionNet as it's not needed for recognition
-      ]);
+      // Check if Python service is available
+      const isHealthy = await this.pythonService.healthCheck();
+      if (!isHealthy) {
+        console.warn('Python face recognition service is not available, falling back to Node.js service');
+        // Load face-api.js models as fallback
+        const modelsPath = path.join(__dirname, '../../models');
+        await Promise.all([
+          faceapi.nets.tinyFaceDetector.loadFromDisk(modelsPath),
+          faceapi.nets.faceLandmark68Net.loadFromDisk(modelsPath),
+          faceapi.nets.faceRecognitionNet.loadFromDisk(modelsPath)
+        ]);
+      } else {
+        console.log('Python face recognition service is available and healthy');
+      }
 
       this.isInitialized = true;
       console.log('Face recognition service initialized successfully');
@@ -122,10 +129,11 @@ class FaceRecognitionService {
         kernel: 'nearest' // Fastest resize kernel
       })
       .jpeg({ 
-        quality: 60, // Further reduced quality
+        quality: 50, // Further reduced quality for speed
         chromaSubsampling: '4:2:0',
         optimizeScans: true,
-        optimizeCoding: true
+        optimizeCoding: true,
+        progressive: false // Disable progressive for faster processing
       })
       .toBuffer();
   }
@@ -158,6 +166,42 @@ class FaceRecognitionService {
     return 'image/jpeg'; // default
   }
 
+  // Check if face is properly aligned and centered
+  private checkFaceAlignment(detection: any): boolean {
+    try {
+      const box = detection.box;
+      const imageWidth = 320; // Based on MAX_IMAGE_SIZE
+      const imageHeight = 320;
+      
+      // Check if face is reasonably centered
+      const faceCenterX = box.x + box.width / 2;
+      const faceCenterY = box.y + box.height / 2;
+      const imageCenterX = imageWidth / 2;
+      const imageCenterY = imageHeight / 2;
+      
+      const centerOffsetX = Math.abs(faceCenterX - imageCenterX) / imageWidth;
+      const centerOffsetY = Math.abs(faceCenterY - imageCenterY) / imageHeight;
+      
+      // Face should be within 30% of center
+      if (centerOffsetX > 0.3 || centerOffsetY > 0.3) {
+        console.log(`Face not centered - X offset: ${centerOffsetX}, Y offset: ${centerOffsetY}`);
+        return false;
+      }
+      
+      // Check face aspect ratio (should be roughly square-ish)
+      const aspectRatio = box.width / box.height;
+      if (aspectRatio < 0.7 || aspectRatio > 1.4) {
+        console.log(`Face aspect ratio too extreme: ${aspectRatio}`);
+        return false;
+      }
+      
+      return true;
+    } catch (error) {
+      console.error('Error checking face alignment:', error);
+      return false;
+    }
+  }
+
   // Optimized face detection with preprocessing
   private async detectFace(imageBuffer: Buffer): Promise<boolean> {
     try {
@@ -185,11 +229,52 @@ class FaceRecognitionService {
         return false;
       }
 
+      // Check face alignment
+      if (!this.checkFaceAlignment(detection)) {
+        console.log('Face not properly aligned');
+        return false;
+      }
+
       console.log(`Face detection result: true (size: ${faceSize}px)`);
       return true;
     } catch (error) {
       console.error('Error detecting face:', error);
       throw error;
+    }
+  }
+
+  // Validate face descriptor quality
+  private validateFaceDescriptor(descriptor: Float32Array): boolean {
+    try {
+      if (!descriptor || descriptor.length === 0) {
+        return false;
+      }
+
+      // Check for reasonable descriptor values
+      let sum = 0;
+      let min = Infinity;
+      let max = -Infinity;
+      
+      for (let i = 0; i < descriptor.length; i++) {
+        const val = descriptor[i];
+        sum += val;
+        min = Math.min(min, val);
+        max = Math.max(max, val);
+      }
+
+      const mean = sum / descriptor.length;
+      const range = max - min;
+
+      // Descriptor should have reasonable statistics
+      if (Math.abs(mean) > 1.0 || range < 0.1 || range > 10.0) {
+        console.log(`Invalid descriptor stats - mean: ${mean}, range: ${range}`);
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error validating face descriptor:', error);
+      return false;
     }
   }
 
@@ -222,6 +307,12 @@ class FaceRecognitionService {
       const landmarks = detection.landmarks;
       if (!landmarks || !this.validateLandmarks(landmarks)) {
         console.log('Invalid face landmarks detected');
+        return null;
+      }
+
+      // Validate descriptor quality
+      if (!this.validateFaceDescriptor(detection.descriptor)) {
+        console.log('Invalid face descriptor quality');
         return null;
       }
 
@@ -325,37 +416,76 @@ class FaceRecognitionService {
         return false;
       }
 
-      let sum = 0;
-      const len = Math.min(descriptor1.length, FaceRecognitionService.DESCRIPTOR_COMPARE_LENGTH);
+      // Use cosine similarity for better performance and accuracy
+      let dotProduct = 0;
+      let norm1 = 0;
+      let norm2 = 0;
+      
+      // Use full descriptor length for better accuracy
+      const len = descriptor1.length;
       
       for (let i = 0; i < len; i++) {
-        const diff = descriptor1[i] - descriptor2[i];
-        sum += diff * diff;
+        const val1 = descriptor1[i];
+        const val2 = descriptor2[i];
         
-        if (sum > FaceRecognitionService.EARLY_EXIT_THRESHOLD) {
-          return false;
-        }
+        dotProduct += val1 * val2;
+        norm1 += val1 * val1;
+        norm2 += val2 * val2;
       }
 
-      const distance = Math.sqrt(sum);
-      const similarity = 1 - (distance / 2);
+      // Early exit if norms are too different (indicates very different faces)
+      const normDiff = Math.abs(Math.sqrt(norm1) - Math.sqrt(norm2));
+      if (normDiff > 2.0) {
+        console.log(`Face similarity score: 0.0 (norm difference too high: ${normDiff})`);
+        return false;
+      }
+
+      const similarity = dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
       
       // Log similarity score for debugging
       console.log(`Face similarity score: ${similarity}`);
       
-      return similarity > FaceRecognitionService.FACE_MATCH_THRESHOLD;
+      // Much stricter threshold - require 85% similarity
+      return similarity > 0.85;
     } catch (error) {
       console.error('Error comparing face descriptors:', error);
       return false;
     }
   }
 
-  // Main verification method - ultra optimized
+  // Main verification method - uses Python service for speed
   public async verifyFace(imageBuffer: Buffer, memberId: string): Promise<boolean> {
     try {
       if (!this.isInitialized) {
         await this.initialize();
       }
+
+      console.log('Starting face verification with Python service...');
+      const startTime = Date.now();
+
+      // Try Python service first
+      try {
+        const isMatch = await this.pythonService.verifyFace(imageBuffer, memberId);
+        const endTime = Date.now();
+        console.log(`Python face verification completed in ${endTime - startTime}ms, result: ${isMatch}`);
+        return isMatch;
+      } catch (pythonError) {
+        console.warn('Python service failed, falling back to Node.js service:', pythonError);
+        
+        // Fallback to Node.js service
+        return await this.verifyFaceNodeJS(imageBuffer, memberId);
+      }
+    } catch (error) {
+      console.error('Error verifying face:', error);
+      throw error;
+    }
+  }
+
+  // Node.js fallback verification method
+  private async verifyFaceNodeJS(imageBuffer: Buffer, memberId: string): Promise<boolean> {
+    try {
+      console.log('Using Node.js face verification fallback...');
+      const startTime = Date.now();
 
       // Get member's photo URL and cached descriptor in parallel
       const [member, verificationDescriptor] = await Promise.all([
@@ -387,9 +517,12 @@ class FaceRecognitionService {
         }
       }
 
-      return this.compareFaceDescriptors(storedDescriptor, verificationDescriptor);
+      const isMatch = this.compareFaceDescriptors(storedDescriptor, verificationDescriptor);
+      const endTime = Date.now();
+      console.log(`Node.js face verification completed in ${endTime - startTime}ms, result: ${isMatch}`);
+      return isMatch;
     } catch (error) {
-      console.error('Error verifying face:', error);
+      console.error('Error in Node.js face verification:', error);
       throw error;
     }
   }
@@ -401,6 +534,28 @@ class FaceRecognitionService {
       }
 
       console.log('Processing face for indexing...');
+      
+      // Try Python service first
+      try {
+        const photoUrl = await this.pythonService.indexFace(imageBuffer, memberId);
+        console.log('Face indexed successfully with Python service');
+        return photoUrl;
+      } catch (pythonError) {
+        console.warn('Python service failed, falling back to Node.js service:', pythonError);
+        
+        // Fallback to Node.js service
+        return await this.indexFaceNodeJS(imageBuffer, memberId);
+      }
+    } catch (error) {
+      console.error('Error indexing face:', error);
+      throw error;
+    }
+  }
+
+  // Node.js fallback indexing method
+  private async indexFaceNodeJS(imageBuffer: Buffer, memberId: string): Promise<string> {
+    try {
+      console.log('Using Node.js face indexing fallback...');
       
       // Detect face and get descriptor
       const faceDescriptor = await this.getFaceDescriptor(imageBuffer);
@@ -422,7 +577,7 @@ class FaceRecognitionService {
 
       return uploadResult.secure_url;
     } catch (error) {
-      console.error('Error indexing face:', error);
+      console.error('Error in Node.js face indexing:', error);
       throw error;
     }
   }
@@ -430,6 +585,7 @@ class FaceRecognitionService {
   // Utility method to clear cache
   public clearCache(): void {
     FaceRecognitionService.faceDescriptorCache.clear();
+    this.pythonService.clearCache();
     console.log('Face descriptor cache cleared');
   }
 

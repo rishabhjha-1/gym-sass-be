@@ -1,0 +1,13 @@
+services:
+  # Python Face Recognition Service
+  - type: web
+    name: face-recognition-service
+    env: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python face_recognition_service.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: PORT
+        value: 8000 

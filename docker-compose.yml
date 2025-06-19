@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  # Python Face Recognition Service
+  face-recognition-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Your existing Node.js application
+  gym-sass-be:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    ports:
+      - "3000:3000"
+    environment:
+      - PYTHON_FACE_SERVICE_URL=http://face-recognition-service:8000
+      - DATABASE_URL=${DATABASE_URL}
+      - CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME}
+      - CLOUDINARY_API_KEY=${CLOUDINARY_API_KEY}
+      - CLOUDINARY_API_SECRET=${CLOUDINARY_API_SECRET}
+    depends_on:
+      - face-recognition-service
+    restart: unless-stopped 
