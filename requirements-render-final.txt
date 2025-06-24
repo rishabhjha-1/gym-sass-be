@@ -1,0 +1,21 @@
+# Final Render-optimized requirements
+# Install dlib first, then face-recognition
+
+# Core dependencies
+numpy==1.24.3
+Pillow==9.5.0
+requests==2.31.0
+
+# FastAPI
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+
+# OpenCV headless
+opencv-python-headless==4.8.1.78
+
+# Install dlib from wheel first
+dlib @ https://github.com/sachadee/Dlib/releases/download/v19.22/dlib-19.22.99-cp311-cp311-linux_x86_64.whl
+
+# Then install face-recognition without dlib dependency
+face-recognition @ git+https://github.com/ageitgey/face_recognition.git@master#egg=face_recognition 
