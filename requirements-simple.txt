@@ -1,0 +1,15 @@
+# Simple face detection requirements - minimal dependencies
+# No dlib or face_recognition library
+
+# Core dependencies
+numpy==1.24.3
+Pillow==9.5.0
+requests==2.31.0
+
+# FastAPI
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+
+# OpenCV headless only (much smaller than face_recognition)
+opencv-python-headless==4.8.1.78 
