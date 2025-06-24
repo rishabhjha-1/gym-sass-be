@@ -1,0 +1,13 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "python face_recognition_service.py"
+healthcheckPath = "/health"
+healthcheckTimeout = 300
+
+[phases.setup]
+nixPkgs = ["cmake", "gcc", "gcc-unwrapped", "gcc-unwrapped.lib", "gcc-unwrapped.lib64", "gcc-unwrapped.lib64.libgcc_s.so.1", "gcc-unwrapped.lib64.libstdc++.so.6", "gcc-unwrapped.lib64.libgomp.so.1", "gcc-unwrapped.lib64.libgcc_s.so.1", "gcc-unwrapped.lib64.libstdc++.so.6", "gcc-unwrapped.lib64.libgomp.so.1"]
+
+[phases.install]
+cmds = ["pip install --no-cache-dir -r requirements.txt"] 
