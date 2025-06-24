@@ -1,0 +1,18 @@
+# Minimal requirements for Render deployment
+# Uses only pre-compiled packages
+
+# Core dependencies
+numpy==1.24.3
+Pillow==9.5.0
+requests==2.31.0
+
+# FastAPI
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+
+# Face recognition (will install pre-compiled dlib)
+face-recognition==1.3.0
+
+# OpenCV headless (pre-compiled)
+opencv-python-headless==4.8.1.78 

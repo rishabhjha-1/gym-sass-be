@@ -1,0 +1,25 @@
+# Render-optimized requirements for face recognition service
+# Uses pre-compiled packages to avoid system dependency issues
+
+# Core face recognition with pre-compiled dlib
+face-recognition==1.3.0
+
+# Use opencv-python-headless (pre-compiled, no system deps needed)
+opencv-python-headless==4.8.1.78
+
+# Optimized numpy version
+numpy==1.24.3
+
+# Lightweight image processing
+Pillow==9.5.0
+
+# HTTP requests
+requests==2.31.0
+
+# FastAPI with minimal dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+
+# Additional optimizations for Render
+python-multipart==0.0.6 
