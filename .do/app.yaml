@@ -1,0 +1,13 @@
+name: face-recognition-service
+services:
+- name: face-recognition
+  source_dir: /
+  github:
+    repo: rishabhjha-1/gym-sass-be
+    branch: main
+  run_command: python face_recognition_service.py
+  environment_slug: python
+  instance_count: 1
+  instance_size_slug: basic-xxs
+  health_check:
+    http_path: /health 

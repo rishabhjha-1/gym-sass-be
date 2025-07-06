@@ -145,23 +145,54 @@ export class MemberService {
       };
     }
 
-    // Get total count for pagination
-    const total = await prisma.member.count({ where });
-
-    // Get members
-    const members = await prisma.member.findMany({
-      where,
-      include: {
-        memberships: {
-          where: { isActive: true },
-          orderBy: { endDate: 'desc' },
-          take: 1
-        }
-      },
-      skip,
-      take: limit,
-      orderBy: { joinDate: 'desc' }
-    });
+    // Execute both queries in parallel for better performance
+    const [total, members] = await Promise.all([
+      prisma.member.count({ where }),
+      prisma.member.findMany({
+        where,
+        select: {
+          id: true,
+          memberId: true,
+          firstName: true,
+          lastName: true,
+          email: true,
+          phone: true,
+          gender: true,
+          dateOfBirth: true,
+          address: true,
+          emergencyContact: true,
+          joinDate: true,
+          lastVisit: true,
+          expiryDate: true,
+          status: true,
+          membershipType: true,
+          trainingGoal: true,
+          height: true,
+          weight: true,
+          notes: true,
+          photoUrl: true,
+          gymId: true,
+          createdAt: true,
+          updatedAt: true,
+          // Only include active membership info if needed
+          memberships: {
+            where: { isActive: true },
+            select: {
+              id: true,
+              endDate: true,
+              type: true,
+              price: true,
+              isActive: true
+            },
+            orderBy: { endDate: 'desc' },
+            take: 1
+          }
+        },
+        skip,
+        take: limit,
+        orderBy: { joinDate: 'desc' }
+      })
+    ]);
 
     return {
       data: members,

@@ -3,17 +3,16 @@ import axios from 'axios';
 
 const prisma = new PrismaClient();
 
-// Message91 WhatsApp API Configuration (using the provided API key)
-const MESSAGE91_API_KEY = process.env.FASTSMS_API_KEY || 'DJ4Up5EHRwYWgNermxtAFaOC2Pzid7XhIGuKoM9s8BnQkTj3bfoVDqyfgnBGFlhvEILZKT4S23JRwM8b';
-const MESSAGE91_WHATSAPP_API_URL = 'https://api.msg91.com/api/v5/whatsapp/send';
-const MESSAGE91_SMS_API_URL = 'https://api.msg91.com/api/v2/sendsms';
+// FastSMS WhatsApp API Configuration
+const FASTSMS_API_KEY = process.env.FASTSMS_API_KEY || 'DJ4Up5EHRwYWgNermxtAFaOC2Pzid7XhIGuKoM9s8BnQkTj3bfoVDqyfgnBGFlhvEILZKT4S23JRwM8b';
+const FASTSMS_WHATSAPP_API_URL = 'https://api.fastsms.com/api/v1/whatsapp/send';
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
 
-if (!MESSAGE91_API_KEY) {
-  console.warn('⚠️ Message91 WhatsApp integration is not properly configured. Please set FASTSMS_API_KEY environment variable.');
+if (!FASTSMS_API_KEY) {
+  console.warn('⚠️ FastSMS WhatsApp integration is not properly configured. Please set FASTSMS_API_KEY environment variable.');
 }
 
-export class WhatsAppService {
+export class FastSmsWhatsAppService {
   private static formatPhoneNumber(phone: string): string {
     // Remove any non-digit characters
     const digits = phone.replace(/\D/g, '');
@@ -32,117 +31,63 @@ export class WhatsAppService {
 
   private static async sendWhatsAppMessage(to: string, message: string) {
     let formattedNumber = to; // Initialize with original number
-    let apiUrl: string = ''; // Initialize apiUrl
     try {
       // Format phone number
       formattedNumber = this.formatPhoneNumber(to);
 
-      // Check if Message91 integration is configured
-      if (!MESSAGE91_API_KEY) {
-        console.warn('Message91 WhatsApp message not sent - integration not configured');
+      // Check if FastSMS integration is configured
+      if (!FASTSMS_API_KEY) {
+        console.warn('FastSMS WhatsApp message not sent - integration not configured');
         return;
       }
 
-      console.log('Sending Message91 WhatsApp message to:', formattedNumber);
+      console.log('Sending FastSMS WhatsApp message to:', formattedNumber);
       
-      // Try WhatsApp API first, then fallback to SMS
-      let requestBody;
-      
-      try {
-        // Try WhatsApp API
-        requestBody = {
-          to: formattedNumber,
-          message: message,
-          type: 'text'
-        };
-        apiUrl = MESSAGE91_WHATSAPP_API_URL;
-        
-        console.log('Trying Message91 WhatsApp API:', apiUrl);
-        console.log('Message content:', requestBody);
+      const requestBody = {
+        to: formattedNumber,
+        message: message,
+        type: 'text'
+      };
 
-        const response = await axios.post(
-          apiUrl,
-          requestBody,
-          {
-            headers: {
-              'authkey': MESSAGE91_API_KEY,
-              'Content-Type': 'application/json'
-            }
+      console.log('Message content:', requestBody);
+
+      const response = await axios.post(
+        FASTSMS_WHATSAPP_API_URL,
+        requestBody,
+        {
+          headers: {
+            'Authorization': `Bearer ${FASTSMS_API_KEY}`,
+            'Content-Type': 'application/json'
           }
-        );
-
-        console.log('Message91 WhatsApp API Response:', {
-          status: response.status,
-          statusText: response.statusText,
-          data: response.data
-        });
-
-        // Check if the message was sent successfully
-        if (response.data?.status === 'success' || response.data?.message_id) {
-          console.log('WhatsApp message sent successfully:', response.data);
-          return response.data;
-        } else {
-          console.warn('WhatsApp message might not have been sent. Response:', response.data);
-          return null;
         }
-      } catch (whatsappError: any) {
-        console.warn('WhatsApp API failed, trying SMS API:', whatsappError.message);
-        
-        // Fallback to SMS API
-        requestBody = {
-          sender: 'GYMGMT',
-          route: "4", // Transactional route
-          country: "91",
-          sms: [
-            {
-              message: message,
-              to: [formattedNumber]
-            }
-          ]
-        };
-        apiUrl = MESSAGE91_SMS_API_URL;
-        
-        console.log('Trying Message91 SMS API:', apiUrl);
-        console.log('Message content:', requestBody);
+      );
 
-        const smsResponse = await axios.post(
-          apiUrl,
-          requestBody,
-          {
-            headers: {
-              'authkey': MESSAGE91_API_KEY,
-              'Content-Type': 'application/json'
-            }
-          }
-        );
+      console.log('FastSMS WhatsApp API Response:', {
+        status: response.status,
+        statusText: response.statusText,
+        data: response.data
+      });
 
-        console.log('Message91 SMS API Response:', {
-          status: smsResponse.status,
-          statusText: smsResponse.statusText,
-          data: smsResponse.data
-        });
-
-        // Check if the SMS was sent successfully
-        if (smsResponse.data?.status === 'success' || smsResponse.data?.message_id) {
-          console.log('SMS message sent successfully:', smsResponse.data);
-          return smsResponse.data;
-        } else {
-          console.warn('SMS message might not have been sent. Response:', smsResponse.data);
-          return null;
-        }
+      // Check if the message was sent successfully
+      if (response.data?.status === 'success' || response.data?.message_id) {
+        console.log('Message sent successfully:', response.data);
+        return response.data;
+      } else {
+        console.warn('Message might not have been sent. Response:', response.data);
+        return null;
       }
     } catch (error: any) {
-      console.error('Failed to send Message91 message:', {
+      console.error('Failed to send FastSMS WhatsApp message:', {
         error: error.message,
         response: error.response?.data,
         phone: to,
         requestData: {
-          url: apiUrl,
+          url: FASTSMS_WHATSAPP_API_URL,
           to: formattedNumber,
           message: message
         }
       });
-      throw new Error(`Failed to send Message91 message: ${error.message}`);
+      throw new Error(`Failed to send FastSMS WhatsApp message: ${error.message}`);
     }
   }
 

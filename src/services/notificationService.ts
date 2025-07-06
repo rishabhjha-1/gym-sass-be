@@ -1,19 +1,19 @@
 // src/services/notificationService.ts
 import nodemailer from 'nodemailer';
 // import twilio from 'twilio';
-import { Payment, Member } from '@prisma/client';
+import { Payment, Member, User } from '@prisma/client';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
 export class NotificationService {
-  private static emailTransporter = nodemailer.createTransport({
+  static emailTransporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST || 'smtp.gmail.com',
     port: parseInt(process.env.SMTP_PORT || '587'),
     secure: process.env.SMTP_SECURE === 'true',
     auth: {
-      user: process.env.SMTP_USERNAME,
-      pass: process.env.SMTP_PASSWORD
+      user: "letzkhello@gmail.com",
+      pass: "bnut rshf sbxu xqrm"
     }
   });
 
@@ -65,13 +65,143 @@ export class NotificationService {
       Best regards,
       Gym Management Team
     `;
+    try {
+      const result = await this.emailTransporter.sendMail({
+        from: process.env.EMAIL_FROM || 'noreply@yourgym.com',
+        to: member.email,
+        subject: 'Payment Reminder - Your Gym Membership',
+        text: emailBody
+      });
+      console.log(result);
+    } catch (error) {
+      console.error('Failed to send email:', error);
+    }
 
-    await this.emailTransporter.sendMail({
-      from: process.env.EMAIL_FROM || 'noreply@yourgym.com',
-      to: member.email,
-      subject: 'Payment Reminder - Your Gym Membership',
-      text: emailBody
-    });
+    
+  }
+
+  static async sendMemberEntryNotification(gymId: string, member: Member) {
+    try {
+      console.log(`Starting member entry notification for gym ${gymId}, member ${member.firstName} ${member.lastName}`);
+      
+      // Get gym owner's email
+      const gymOwner = await prisma.user.findFirst({
+        where: {
+          gymId: gymId,
+          role: 'OWNER'
+        }
+      });
+
+      console.log('Gym owner found:', gymOwner ? { id: gymOwner.id, email: gymOwner.email, role: gymOwner.role } : 'Not found');
+
+      if (!gymOwner || !gymOwner.email) {
+        console.warn('Gym owner not found or no email available for gym:', gymId);
+        console.warn('Please create a user with role "OWNER" for this gym to receive email notifications');
+        return;
+      }
+      
+      const emailBody = `
+        🏋️ MEMBER ENTRY NOTIFICATION 🏋️
+
+        A member has entered the gym with overdue payments.
+
+        MEMBER DETAILS:
+        - Name: ${member.firstName} ${member.lastName}
+        - Member ID: ${member.memberId}
+        - Email: ${member.email}
+        - Phone: ${member.phone}
+        - Join Date: ${new Date(member.joinDate).toLocaleDateString()}
+        - Membership Type: ${member.membershipType}
+        - Status: ${member.status}
+        - Last Visit: ${member.lastVisit ? new Date(member.lastVisit).toLocaleString() : 'First visit'}
+
+        MEMBER PHOTO: ${member.photoUrl || 'No photo available'}
+
+        Entry Time: ${new Date().toLocaleString()}
+
+        Best regards,
+        Gym Management System
+      `;
+
+      console.log('Attempting to send email to:', gymOwner.email);
+      console.log('Email subject:', `🏋️ Member Entry - ${member.firstName} ${member.lastName} (${member.memberId})`);
+      
+      const result = await this.emailTransporter.sendMail({
+        from: process.env.EMAIL_FROM || 'noreply@yourgym.com',
+        to: gymOwner.email,
+        subject: `🏋️ Member Entry - ${member.firstName} ${member.lastName} (${member.memberId})`,
+        text: emailBody
+      });
+
+      console.log('Member entry notification email sent to gym owner:', result);
+
+      // Log the notification
+      await prisma.notification.create({
+        data: {
+          memberId: member.id,
+          type: 'MEMBER_ENTRY_NOTIFICATION',
+          message: `Member entry notification sent to gym owner`,
+          status: 'SENT'
+        }
+      });
+
+    } catch (error: any) {
+      console.error('Failed to send member entry notification email to gym owner:', error);
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        gymId,
+        memberId: member.id,
+        memberEmail: member.email
+      });
+      
+      // Log the failed notification
+      try {
+        await prisma.notification.create({
+          data: {
+            memberId: member.id,
+            type: 'MEMBER_ENTRY_NOTIFICATION',
+            message: `Failed to send member entry notification email to gym owner: ${error.message}`,
+            status: 'FAILED'
+          }
+        });
+      } catch (dbError) {
+        console.error('Failed to log notification to database:', dbError);
+      }
+    }
+  }
+
+  static async sendPaymentConfirmation(member: Member, payment: Payment) {
+    const emailBody = `
+      Dear ${member.firstName},
+
+        Thank you for your payment of Rs.${payment.amount} for your gym membership.
+
+      Payment Details:
+      -------------------------
+      Invoice Number: ${payment.invoiceNumber}
+      Amount Paid: Rs.${payment.amount}
+      Payment Method: ${payment.paymentMethod || 'N/A'}
+      Payment Date: ${payment.paidDate ? new Date(payment.paidDate).toLocaleDateString() : new Date().toLocaleDateString()}
+      Due Date: ${new Date(payment.dueDate).toLocaleDateString()}
+      Status: ${payment.status}
+
+      If you have any questions, please contact us.
+
+      Best regards,
+      Gym Management Team
+    `;
+    try {
+      const result = await this.emailTransporter.sendMail({
+        from: "letzkhello@gmail.com",
+        to: member.email,
+        subject: 'Payment Confirmation - Your Gym Membership',
+        text: emailBody
+      });
+      console.log(result, "payment confirmation email sent");
+    } catch (error) {
+      console.error('Failed to send payment confirmation email:', error);
+    }
   }
 
   // static async sendSmsNotification(member: Member, payment: Payment) {
