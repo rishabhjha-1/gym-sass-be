@@ -103,7 +103,7 @@ export class NotificationService {
       const emailBody = `
         🏋️ MEMBER ENTRY NOTIFICATION 🏋️
 
-        A member has entered the gym.
+        A member has entered the gym with overdue payments.
 
         MEMBER DETAILS:
         - Name: ${member.firstName} ${member.lastName}

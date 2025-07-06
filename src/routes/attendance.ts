@@ -41,10 +41,7 @@ router.post('/face', upload.single('faceImage'), async (req: FaceAuthRequest, re
       include: {
         payments: {
           where: {
-            status: PaymentStatus.PENDING,
-            dueDate: {
-              lt: new Date()
-            }
+            status: PaymentStatus.OVERDUE
           }
         }
       }
@@ -54,30 +51,37 @@ router.post('/face', upload.single('faceImage'), async (req: FaceAuthRequest, re
     if (member) {
       console.log(`Member ${member.firstName} ${member.lastName} is entering the gym (face recognition)`);
       console.log("Gym ID from request:", req.user!.gymId);
-      
-      // Get gym owner's phone number
-      const gymOwner = await prisma.user.findFirst({
-        where: {
-          gymId: req.user!.gymId,
-          role: 'OWNER'
+      console.log("member payments", member.payments);
+      // Check if member has overdue payments
+      if (member.payments && member.payments.length > 0) {
+        console.log(`Member has ${member.payments.length} overdue payments`);
+        
+        // Get gym owner's phone number
+        const gymOwner = await prisma.user.findFirst({
+          where: {
+            gymId: req.user!.gymId,
+            role: 'OWNER'
+          }
+        });
+
+        console.log("Gym owner found:", gymOwner ? { id: gymOwner.id, email: gymOwner.email, role: gymOwner.role } : "Not found");
+
+        if (gymOwner && gymOwner.phone) {
+          // Send WhatsApp notification to gym owner
+          // await WhatsAppService.sendOverduePaymentAlert(gymOwner.phone, member, member.payments);
         }
-      });
 
-      console.log("Gym owner found:", gymOwner ? { id: gymOwner.id, email: gymOwner.email, role: gymOwner.role } : "Not found");
-
-      if (gymOwner && gymOwner.phone) {
-        // Send WhatsApp notification to gym owner
-        // await WhatsAppService.sendOverduePaymentAlert(gymOwner.phone, member, member.payments);
-      }
-
-      // Send email notification to gym owner
-      try {
-        console.log("sending email notification to gym owner");
-        await NotificationService.sendMemberEntryNotification(req.user!.gymId, member);
-        console.log("Email notification sent successfully");
-      } catch (emailError) {
-        console.error('Failed to send email notification to gym owner:', emailError);
-        // Don't throw error as WhatsApp notification was already sent
+        // Send email notification to gym owner
+        try {
+          console.log("sending email notification to gym owner for overdue member");
+          await NotificationService.sendMemberEntryNotification(req.user!.gymId, member);
+          console.log("Email notification sent successfully");
+        } catch (emailError) {
+          console.error('Failed to send email notification to gym owner:', emailError);
+          // Don't throw error as WhatsApp notification was already sent
+        }
+      } else {
+        console.log("Member has no overdue payments - no notification sent");
       }
     } else {
       console.log("Member not found for memberId:", memberId);
@@ -118,17 +122,14 @@ router.post('/', async (req: AuthRequest, res) => {
       include: {
         payments: {
           where: {
-            status: PaymentStatus.PENDING,
-            dueDate: {
-              lt: new Date()
-            }
+            status: PaymentStatus.OVERDUE
           }
         }
       }
     });
 
-    if (member) {
-      console.log(`Member ${member.firstName} ${member.lastName} is entering the gym`);
+    if (member && member.payments && member.payments.length > 0) {
+      console.log(`Member ${member.firstName} ${member.lastName} is entering the gym with overdue payments`);
       
       // Get gym owner's phone number
       const gymOwner = await prisma.user.findFirst({
@@ -145,12 +146,14 @@ router.post('/', async (req: AuthRequest, res) => {
 
       // Send email notification to gym owner
       try {
-        console.log("sending email notification to gym owner");
+        console.log("sending email notification to gym owner for overdue member");
         await NotificationService.sendMemberEntryNotification(req.user!.gymId, member);
       } catch (emailError) {
         console.error('Failed to send email notification to gym owner:', emailError);
         // Don't throw error as WhatsApp notification was already sent
       }
+    } else if (member) {
+      console.log(`Member ${member.firstName} ${member.lastName} is entering the gym - no overdue payments`);
     }
 
     const attendance = await AttendanceService.recordAttendance({

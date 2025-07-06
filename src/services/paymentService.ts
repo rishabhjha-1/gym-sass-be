@@ -360,7 +360,7 @@ export class PaymentService {
       try {
         console.log('sending payment confirmation to', updatedPayment.member.phone);  
         await WhatsAppService.sendPaymentConfirmation(updatedPayment.member, updatedPayment);
-        await NotificationService.sendEmailNotification(updatedPayment.member, updatedPayment);
+        await NotificationService.sendPaymentConfirmation(updatedPayment.member, updatedPayment);
       } catch (error) {
         console.error('Failed to send payment confirmation via WhatsApp:', error);
         // Don't throw error here as the payment was already updated successfully
