@@ -1,0 +1,17 @@
+# Heroku-optimized requirements for face recognition
+# Core dependencies
+numpy==1.24.3
+Pillow==9.5.0
+requests==2.31.0
+
+# FastAPI
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+
+# OpenCV headless
+opencv-python-headless==4.8.1.78
+
+# Face recognition with dlib
+dlib==19.24.2
+face-recognition==1.3.0 

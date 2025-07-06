@@ -4,6 +4,7 @@ import { MemberService } from '../services/memberService';
 import { MemberSchema, PaginationSchema } from '../zod';
 import { authenticateToken, authorizeGymAccess, AuthRequest } from '../middleware/auth';
 import { MembershipType, MemberStatus } from '../type';
+import { WhatsAppService } from '../services/whatsappService';
 
 const router = express.Router();
 
@@ -131,6 +132,31 @@ router.patch('/:id/membership-type', async (req: AuthRequest, res) => {
     res.json(member);
   } catch (error:any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Broadcast message to all active members
+router.post('/broadcast', async (req: AuthRequest, res) => {
+  try {
+    const { message } = req.body;
+    
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({ error: 'Message is required and must be a string' });
+    }
+    
+    const result = await WhatsAppService.broadcastMessage(message, req.user!.gymId);
+    
+    res.json({
+      success: true,
+      message: 'Broadcast message sent successfully',
+      result
+    });
+  } catch (error: any) {
+    console.error('Failed to send broadcast message:', error);
+    res.status(500).json({ 
+      error: 'Failed to send broadcast message',
+      details: error.message 
+    });
   }
 });
 

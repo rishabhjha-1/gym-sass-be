@@ -4,14 +4,14 @@ import { PrismaClient, Member, Payment } from '@prisma/client';
 const prisma = new PrismaClient();
 
 // Validate required environment variables
-const MESSAGE91_AUTH_KEY = process.env.MESSAGE91_AUTH_KEY;
-const MESSAGE91_SENDER_ID = process.env.MESSAGE91_SENDER_ID || "GYMGMT";
+const TEXTLOCAL_API_KEY = process.env.TEXTLOCAL_API_KEY;
+const TEXTLOCAL_SENDER = process.env.TEXTLOCAL_SENDER || "TXTLCL";
 
-if (!MESSAGE91_AUTH_KEY) {
-  console.warn('⚠️ Message91 integration is not properly configured. Please set MESSAGE91_AUTH_KEY environment variable.');
+if (!TEXTLOCAL_API_KEY) {
+  console.warn('⚠️ TextLocal integration is not properly configured. Please set TEXTLOCAL_API_KEY environment variable.');
 }
 
-export class Message91Service {
+export class TextLocalService {
   private static formatPhoneNumber(phone: string): string {
     // Remove any non-digit characters
     const digits = phone.replace(/\D/g, '');
@@ -24,44 +24,37 @@ export class Message91Service {
       throw new Error(`Invalid phone number length: ${number}`);
     }
     
-    // Add country code for India
-    return `91${number}`;
+    return number;
   }
 
   private static async sendSMS(to: string, message: string) {
     try {
       const formattedNumber = this.formatPhoneNumber(to);
 
-      if (!MESSAGE91_AUTH_KEY || !MESSAGE91_SENDER_ID) {
-        console.warn('Message91 SMS integration not configured');
+      if (!TEXTLOCAL_API_KEY) {
+        console.warn('TextLocal SMS integration not configured');
         return;
       }
 
-      const response = await axios.post(
-        'https://api.msg91.com/api/v2/sendsms',
-        {
-          sender: MESSAGE91_SENDER_ID,
-          route: "4", // Transactional route
-          country: "91",
-          sms: [
-            {
-              message: message,
-              to: [formattedNumber]
-            }
-          ]
-        },
-        {
-          headers: {
-            'authkey': MESSAGE91_AUTH_KEY,
-            'Content-Type': 'application/json'
-          }
+      const response = await axios.get('https://api.textlocal.in/send/', {
+        params: {
+          apikey: TEXTLOCAL_API_KEY,
+          numbers: formattedNumber,
+          message: message,
+          sender: TEXTLOCAL_SENDER,
+          test: process.env.NODE_ENV !== 'production' ? '1' : '0' // Test mode in development
         }
-      );
+      });
 
-      console.log('Message91 SMS API Response:', response.data);
-      return response.data;
+      console.log('TextLocal SMS API Response:', response.data);
+      
+      if (response.data.status === 'success') {
+        return response.data;
+      } else {
+        throw new Error(`TextLocal API error: ${response.data.message || 'Unknown error'}`);
+      }
     } catch (error: any) {
-      console.error('Failed to send SMS via Message91:', {
+      console.error('Failed to send SMS via TextLocal:', {
         error: error.message,
         response: error.response?.data,
         phone: to
@@ -73,7 +66,8 @@ export class Message91Service {
   static async sendPaymentConfirmation(member: Member, payment: Payment) {
     try {
       const message = `Dear ${member.firstName}, your payment of $${payment.amount} has been successfully received. Invoice: ${payment.invoiceNumber}. Payment Method: ${payment.paymentMethod}. Membership Type: ${member.membershipType}. Thank you for your payment!`;
-      console.log('sending payment confirmation to', member.phone); 
+      console.log('Sending payment confirmation via TextLocal to', member.phone); 
+      
       // Send SMS
       await this.sendSMS(member.phone, message);
 
@@ -94,7 +88,7 @@ export class Message91Service {
 
   static async sendPaymentDueNotification(member: Member, payment: Payment) {
     try {
-      const message = `Dear ${member.firstName}, your payment of $${payment.amount} is due on ${new Date(payment.dueDate).toLocaleDateString()}.`;
+      const message = `Dear ${member.firstName}, your payment of $${payment.amount} is due on ${new Date(payment.dueDate).toLocaleDateString()}. Please make the payment to continue your membership.`;
       
       // Send SMS
       await this.sendSMS(member.phone, message);
@@ -116,7 +110,7 @@ export class Message91Service {
 
   static async sendPaymentOverdueNotification(member: Member, payment: Payment) {
     try {
-      const message = `Dear ${member.firstName}, your payment of $${payment.amount} is overdue. Please make the payment immediately.`;
+      const message = `Dear ${member.firstName}, your payment of $${payment.amount} is overdue. Please make the payment immediately to avoid membership suspension.`;
       
       // Send SMS
       await this.sendSMS(member.phone, message);
@@ -138,7 +132,7 @@ export class Message91Service {
 
   static async sendMembershipExpiryNotification(member: Member) {
     try {
-      const message = `Dear ${member.firstName}, your ${member.membershipType} membership will expire on ${new Date(member.expiryDate!).toLocaleDateString()}.`;
+      const message = `Dear ${member.firstName}, your ${member.membershipType} membership will expire on ${new Date(member.expiryDate!).toLocaleDateString()}. Please renew to continue your fitness journey.`;
       
       // Send SMS
       await this.sendSMS(member.phone, message);
@@ -211,8 +205,8 @@ export class Message91Service {
 
       return results;
     } catch (error) {
-      console.error('Failed to broadcast message:', error);
-      throw new Error('Failed to broadcast message');
+      console.error('Failed to send broadcast message:', error);
+      throw new Error('Failed to send broadcast message');
     }
   }
 } 

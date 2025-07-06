@@ -9,6 +9,7 @@ import { Canvas, Image, ImageData } from 'canvas';
 import { FaceDetection } from 'face-api.js';
 import * as tf from '@tensorflow/tfjs-node';
 import PythonFaceRecognitionService from './pythonFaceRecognitionService';
+import { NotificationService } from './notificationService';
 
 // Configure Cloudinary
 (cloudinary.v2 as any).config({
@@ -520,6 +521,7 @@ class FaceRecognitionService {
       const isMatch = this.compareFaceDescriptors(storedDescriptor, verificationDescriptor);
       const endTime = Date.now();
       console.log(`Node.js face verification completed in ${endTime - startTime}ms, result: ${isMatch}`);
+      // Note: Notifications are handled in the route layer where we have gym context
       return isMatch;
     } catch (error) {
       console.error('Error in Node.js face verification:', error);

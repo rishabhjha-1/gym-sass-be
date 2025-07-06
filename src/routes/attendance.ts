@@ -6,7 +6,8 @@ import { AttendanceSchema, PaginationSchema } from '../zod';
 import { authenticateToken, authorizeGymAccess, AuthRequest } from '../middleware/auth';
 import multer from 'multer';
 import { PrismaClient, PaymentStatus } from '@prisma/client';
-import { Message91Service } from '../services/message91Service';
+import { WhatsAppService } from '../services/whatsappService';
+import { NotificationService } from '../services/notificationService';
 
 const router = express.Router();
 const upload = multer();
@@ -36,7 +37,7 @@ router.post('/face', upload.single('faceImage'), async (req: FaceAuthRequest, re
 
     // Check for overdue payments
     const member = await prisma.member.findUnique({
-      where: { id: memberId },
+      where: { memberId: memberId },
       include: {
         payments: {
           where: {
@@ -49,7 +50,11 @@ router.post('/face', upload.single('faceImage'), async (req: FaceAuthRequest, re
       }
     });
 
-    if (member && member.payments.length > 0) {
+    console.log("received member", member?.status, "member found:", !!member);
+    if (member) {
+      console.log(`Member ${member.firstName} ${member.lastName} is entering the gym (face recognition)`);
+      console.log("Gym ID from request:", req.user!.gymId);
+      
       // Get gym owner's phone number
       const gymOwner = await prisma.user.findFirst({
         where: {
@@ -58,18 +63,24 @@ router.post('/face', upload.single('faceImage'), async (req: FaceAuthRequest, re
         }
       });
 
-      if (gymOwner && gymOwner.phone) {
-        // Send Message91 notification to gym owner
-        const message = `⚠️ Overdue Payment Alert\n\nMember ${member.firstName} ${member.lastName} (ID: ${member.memberId}) is trying to mark attendance but has overdue payments:\n\n` +
-          member.payments.map(payment => 
-            `• Amount: $${payment.amount}\n` +
-            `• Due Date: ${new Date(payment.dueDate).toLocaleDateString()}\n` +
-            `• Invoice: ${payment.invoiceNumber}\n`
-          ).join('\n') +
-          `\nMember's Photo: ${member.photoUrl || 'No photo available'}`;
+      console.log("Gym owner found:", gymOwner ? { id: gymOwner.id, email: gymOwner.email, role: gymOwner.role } : "Not found");
 
-        await Message91Service.broadcastMessage(message, req.user!.gymId);
+      if (gymOwner && gymOwner.phone) {
+        // Send WhatsApp notification to gym owner
+        // await WhatsAppService.sendOverduePaymentAlert(gymOwner.phone, member, member.payments);
       }
+
+      // Send email notification to gym owner
+      try {
+        console.log("sending email notification to gym owner");
+        await NotificationService.sendMemberEntryNotification(req.user!.gymId, member);
+        console.log("Email notification sent successfully");
+      } catch (emailError) {
+        console.error('Failed to send email notification to gym owner:', emailError);
+        // Don't throw error as WhatsApp notification was already sent
+      }
+    } else {
+      console.log("Member not found for memberId:", memberId);
     }
 
     // Verify face
@@ -100,6 +111,48 @@ router.post('/face', upload.single('faceImage'), async (req: FaceAuthRequest, re
 router.post('/', async (req: AuthRequest, res) => {
   try {
     const validatedData = AttendanceSchema.parse(req.body);
+    
+    // Check for overdue payments before recording attendance
+    const member = await prisma.member.findUnique({
+      where: { id: validatedData.memberId },
+      include: {
+        payments: {
+          where: {
+            status: PaymentStatus.PENDING,
+            dueDate: {
+              lt: new Date()
+            }
+          }
+        }
+      }
+    });
+
+    if (member) {
+      console.log(`Member ${member.firstName} ${member.lastName} is entering the gym`);
+      
+      // Get gym owner's phone number
+      const gymOwner = await prisma.user.findFirst({
+        where: {
+          gymId: req.user!.gymId,
+          role: 'OWNER'
+        }
+      });
+
+      if (gymOwner && gymOwner.phone) {
+        // Send WhatsApp notification to gym owner
+        // await WhatsAppService.sendOverduePaymentAlert(gymOwner.phone, member, member.payments);
+      }
+
+      // Send email notification to gym owner
+      try {
+        console.log("sending email notification to gym owner");
+        await NotificationService.sendMemberEntryNotification(req.user!.gymId, member);
+      } catch (emailError) {
+        console.error('Failed to send email notification to gym owner:', emailError);
+        // Don't throw error as WhatsApp notification was already sent
+      }
+    }
+
     const attendance = await AttendanceService.recordAttendance({
       ...validatedData,
       gymId: req.user!.gymId
@@ -168,6 +221,45 @@ router.post('/register-face', upload.single('faceImage'), async (req: FaceAuthRe
     res.status(201).json({ message: 'Face registered successfully', photoUrl });
   } catch (error:any) {
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Test endpoint for email functionality
+router.post('/test-email', async (req: AuthRequest, res) => {
+  try {
+    console.log('Testing email functionality...');
+    
+    // Get gym owner
+    const gymOwner = await prisma.user.findFirst({
+      where: {
+        gymId: req.user!.gymId,
+        role: 'OWNER'
+      }
+    });
+
+    if (!gymOwner || !gymOwner.email) {
+      return res.status(404).json({ error: 'Gym owner not found or no email available' });
+    }
+
+    // Test email
+    const testResult = await NotificationService.emailTransporter.sendMail({
+      from: process.env.EMAIL_FROM || 'noreply@yourgym.com',
+      to: gymOwner.email,
+      subject: 'Test Email - Gym Management System',
+      text: 'This is a test email to verify email functionality is working.'
+    });
+
+    res.json({ 
+      success: true, 
+      message: 'Test email sent successfully',
+      result: testResult 
+    });
+  } catch (error: any) {
+    console.error('Test email failed:', error);
+    res.status(500).json({ 
+      error: 'Test email failed', 
+      details: error.message 
+    });
   }
 });
 
