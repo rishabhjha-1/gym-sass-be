@@ -4,8 +4,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 const client_1 = require("@prisma/client");
-const message91Service_1 = require("../services/message91Service");
+const whatsappService_1 = require("../services/whatsappService");
 const node_cron_1 = __importDefault(require("node-cron"));
+const notificationService_1 = require("../services/notificationService");
 const prisma = new client_1.PrismaClient();
 // Run every day at 9 AM
 node_cron_1.default.schedule('0 9 * * *', async () => {
@@ -28,7 +29,8 @@ node_cron_1.default.schedule('0 9 * * *', async () => {
         });
         // Send notifications for due payments
         for (const payment of duePayments) {
-            await message91Service_1.Message91Service.sendPaymentDueNotification(payment.member, payment);
+            await whatsappService_1.WhatsAppService.sendPaymentDueNotification(payment.member, payment);
+            await notificationService_1.NotificationService.sendPaymentReminder(payment.member.id, payment.id);
         }
         // Find overdue payments
         const overduePayments = await prisma.payment.findMany({
@@ -44,7 +46,7 @@ node_cron_1.default.schedule('0 9 * * *', async () => {
         });
         // Send notifications for overdue payments
         for (const payment of overduePayments) {
-            await message91Service_1.Message91Service.sendPaymentOverdueNotification(payment.member, payment);
+            await whatsappService_1.WhatsAppService.sendPaymentOverdueNotification(payment.member, payment);
         }
         // Find memberships expiring in the next 7 days
         const sevenDaysFromNow = new Date(today);
@@ -60,7 +62,7 @@ node_cron_1.default.schedule('0 9 * * *', async () => {
         });
         // Send notifications for expiring memberships
         for (const member of expiringMemberships) {
-            await message91Service_1.Message91Service.sendMembershipExpiryNotification(member);
+            await whatsappService_1.WhatsAppService.sendMembershipExpiryNotification(member);
         }
         console.log('Payment notifications sent successfully');
     }

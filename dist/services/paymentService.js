@@ -7,7 +7,9 @@ exports.PaymentService = void 0;
 // src/services/paymentService.ts
 const client_1 = require("@prisma/client");
 const moment_1 = __importDefault(require("moment"));
-const message91Service_1 = require("./message91Service");
+const whatsappService_1 = require("./whatsappService");
+const textLocalService_1 = require("./textLocalService");
+const notificationService_1 = require("./notificationService");
 const prisma = new client_1.PrismaClient();
 class PaymentService {
     static async getPendingPayment(gymId) {
@@ -49,15 +51,42 @@ class PaymentService {
         if (!member) {
             throw new Error('Member not found in this gym');
         }
-        // Generate invoice number
-        const paymentCount = await prisma.payment.count({
-            where: {
-                member: {
-                    gymId: paymentData.gymId
+        // Generate unique invoice number with retry logic
+        let invoiceNumber;
+        let retryCount = 0;
+        const maxRetries = 5;
+        do {
+            // Get current timestamp for uniqueness
+            const timestamp = Date.now();
+            const year = new Date().getFullYear();
+            // Get payment count for this gym in current year
+            const paymentCount = await prisma.payment.count({
+                where: {
+                    member: {
+                        gymId: paymentData.gymId
+                    },
+                    createdAt: {
+                        gte: new Date(year, 0, 1), // Start of current year
+                        lt: new Date(year + 1, 0, 1) // Start of next year
+                    }
                 }
+            });
+            // Create invoice number with timestamp to ensure uniqueness
+            invoiceNumber = `INV-${year}-${paymentData.memberId}-${(paymentCount + 1).toString().padStart(4, '0')}-${timestamp.toString().slice(-6)}`;
+            // Check if this invoice number already exists
+            const existingPayment = await prisma.payment.findUnique({
+                where: { invoiceNumber }
+            });
+            if (!existingPayment) {
+                break; // Invoice number is unique, proceed
             }
-        });
-        const invoiceNumber = `INV+ ${paymentData.memberId}-${new Date().getFullYear()}${(paymentCount + 1).toString().padStart(5, '0')}`;
+            retryCount++;
+            if (retryCount >= maxRetries) {
+                throw new Error('Failed to generate unique invoice number after maximum retries');
+            }
+            // Wait a bit before retrying to avoid race conditions
+            await new Promise(resolve => setTimeout(resolve, 100));
+        } while (true);
         // Remove gymId from the payment data since it's not needed in the Payment model
         const { gymId, ...paymentDataWithoutGymId } = paymentData;
         return prisma.payment.create({
@@ -281,14 +310,15 @@ class PaymentService {
                 member: true // Include member data for notification
             }
         });
-        // Send Message91 notification if payment is marked as PAID
+        // Send WhatsApp notification if payment is marked as PAID
         if (status === client_1.PaymentStatus.PAID && updatedPayment.member) {
             try {
                 console.log('sending payment confirmation to', updatedPayment.member.phone);
-                await message91Service_1.Message91Service.sendPaymentConfirmation(updatedPayment.member, updatedPayment);
+                await whatsappService_1.WhatsAppService.sendPaymentConfirmation(updatedPayment.member, updatedPayment);
+                await notificationService_1.NotificationService.sendPaymentConfirmation(updatedPayment.member, updatedPayment);
             }
             catch (error) {
-                console.error('Failed to send payment confirmation via Message91:', error);
+                console.error('Failed to send payment confirmation via WhatsApp:', error);
                 // Don't throw error here as the payment was already updated successfully
             }
         }
@@ -411,8 +441,21 @@ class PaymentService {
                     member: true
                 }
             });
-            // Send Message91 confirmation
-            await message91Service_1.Message91Service.sendPaymentConfirmation(payment.member, payment);
+            // Try WhatsApp first, then fallback to SMS
+            try {
+                console.log('Sending payment confirmation via WhatsApp to', payment.member.phone);
+                await whatsappService_1.WhatsAppService.sendPaymentConfirmation(payment.member, payment);
+            }
+            catch (whatsappError) {
+                console.error('WhatsApp failed, trying SMS fallback:', whatsappError);
+                try {
+                    await textLocalService_1.TextLocalService.sendPaymentConfirmation(payment.member, payment);
+                }
+                catch (smsError) {
+                    console.error('Both WhatsApp and SMS failed:', smsError);
+                    // Don't throw error as payment was recorded successfully
+                }
+            }
             return payment;
         }
         catch (error) {
