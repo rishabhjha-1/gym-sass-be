@@ -45,7 +45,10 @@ services:
     name: gym-sass-backend
     env: node
     plan: starter
-    buildCommand: npm ci --only=production && npm run build
+    buildCommand: |
+      npm ci
+      npx prisma generate --schema=src/prisma/schema.prisma
+      npm run build
     startCommand: npm start
     envVars:
       - key: NODE_ENV
@@ -53,4 +56,8 @@ services:
       - key: PORT
         value: 3000
       - key: PYTHON_FACE_SERVICE_URL
-        value: https://face-recognition-service-optimized.onrender.com 
+        value: https://face-recognition-service-optimized.onrender.com
+      - key: FRONTEND_URL
+        value: https://gym.nexgenbattles.com
+      - key: NODE_VERSION
+        value: 18.19.0 

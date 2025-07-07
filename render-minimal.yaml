@@ -1,0 +1,17 @@
+services:
+  # Express.js Backend Service
+  - type: web
+    name: gym-sass-backend
+    env: node
+    plan: starter
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: PYTHON_FACE_SERVICE_URL
+        value: https://face-recognition-service-optimized.onrender.com
+      - key: FRONTEND_URL
+        value: https://gym.nexgenbattles.com 
