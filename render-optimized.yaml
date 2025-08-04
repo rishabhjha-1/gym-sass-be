@@ -53,4 +53,10 @@ services:
       - key: PORT
         value: 3000
       - key: PYTHON_FACE_SERVICE_URL
-        value: https://face-recognition-service-optimized.onrender.com 
+        value: https://face-recognition-service-optimized.onrender.com
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false 

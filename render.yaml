@@ -60,4 +60,10 @@ services:
       - key: FRONTEND_URL
         value: https://gym.nexgenbattles.com
       - key: NODE_VERSION
-        value: 18.19.0 
+        value: 18.19.0
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false 
