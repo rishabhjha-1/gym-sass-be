@@ -30,7 +30,7 @@ export const MemberSchema = z.object({
   email: z.string().email('Invalid email format'),
   phone: z.string().regex(/^\d{10}$/, 'Phone number must be exactly 10 digits'),
   gender: z.nativeEnum(GenderType),
-  dateOfBirth: z.string().or(z.date()),
+  dateOfBirth: z.string().or(z.date()).optional(),
   address: z.string().optional(),
   emergencyContact: z.string().optional(),
   membershipType: z.nativeEnum(MembershipType),
@@ -94,6 +94,10 @@ export const ExpenseSchema = z.object({
 export const PaginationSchema = z.object({
   page: z.string().or(z.number()).transform(Number).optional().default(1),
   limit: z.string().or(z.number()).transform(Number).optional().default(10),
+});
+
+export const UpdatePhotoSchema = z.object({
+  photoUrl: z.string().min(1, 'Photo URL is required')
 });
 
 export const GymSchema = z.object({

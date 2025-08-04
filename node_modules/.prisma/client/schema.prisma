@@ -91,7 +91,7 @@ model Member {
   email            String       @unique
   phone            String
   gender           GenderType   @default(MALE)
-  dateOfBirth      DateTime
+  dateOfBirth      DateTime?
   address          String?
   emergencyContact String?
   joinDate         DateTime     @default(now())

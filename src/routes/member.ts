@@ -1,7 +1,7 @@
 // src/routes/memberRoutes.ts
 import express from 'express';
 import { MemberService } from '../services/memberService';
-import { MemberSchema, PaginationSchema } from '../zod';
+import { MemberSchema, PaginationSchema, UpdatePhotoSchema } from '../zod';
 import { authenticateToken, authorizeGymAccess, AuthRequest } from '../middleware/auth';
 import { MembershipType, MemberStatus } from '../type';
 import { WhatsAppService } from '../services/whatsappService';
@@ -72,6 +72,25 @@ router.put('/:id', async (req: AuthRequest, res) => {
       ...validatedData,
       gymId: req.user!.gymId
     });
+    res.json(member);
+  } catch (error:any) {
+    if (error.name === 'ZodError') {
+      res.status(400).json({ error: error.errors });
+    } else {
+      res.status(500).json({ error: error.message });
+    }
+  }
+});
+
+// Update member photo
+router.patch('/:id/photo', async (req: AuthRequest, res) => {
+  try {
+    const validatedData = UpdatePhotoSchema.parse(req.body);
+    const member = await MemberService.updateMemberPhoto(
+      req.params.id,
+      req.user!.gymId,
+      validatedData.photoUrl
+    );
     res.json(member);
   } catch (error:any) {
     if (error.name === 'ZodError') {

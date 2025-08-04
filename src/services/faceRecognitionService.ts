@@ -383,16 +383,19 @@ class FaceRecognitionService {
   public async uploadFaceImage(imageBuffer: Buffer): Promise<CloudinaryUploadResponse> {
     try {
       console.log('Optimizing image for upload...');
-      const optimizedImage = await sharp(imageBuffer)
-        .resize(800, 800, { fit: 'inside' })
-        .jpeg({ quality: 80 })
-        .toBuffer();
+      
+      // Only optimize if image is larger than 1MB to avoid unnecessary processing
+      const shouldOptimize = imageBuffer.length > 1024 * 1024;
+      let optimizedImage = imageBuffer;
+      
+      if (shouldOptimize) {
+        optimizedImage = await sharp(imageBuffer)
+          .resize(800, 800, { fit: 'inside' })
+          .jpeg({ quality: 80 })
+          .toBuffer();
+      }
 
-      console.log('Uploading to Cloudinary with config:', {
-        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-        api_key: process.env.CLOUDINARY_API_KEY ? 'SET' : 'NOT SET',
-        api_secret: process.env.CLOUDINARY_API_SECRET ? 'SET' : 'NOT SET'
-      });
+      console.log('Uploading to Cloudinary...');
       return new Promise((resolve, reject) => {
         const uploader = cloudinary.v2.uploader as unknown as CloudinaryUploader;
         const uploadStream = uploader.upload_stream(
@@ -408,7 +411,7 @@ class FaceRecognitionService {
             } else if (!result || !result.secure_url || !result.public_id) {
               reject(new Error('Invalid response from Cloudinary'));
             } else {
-              console.log('Upload successful:', result);
+              console.log('Upload successful');
               resolve({
                 secure_url: result.secure_url,
                 public_id: result.public_id
@@ -417,6 +420,11 @@ class FaceRecognitionService {
           }
         );
         uploadStream.end(optimizedImage);
+        
+        // Add timeout to prevent hanging
+        setTimeout(() => {
+          reject(new Error('Cloudinary upload timeout after 30 seconds'));
+        }, 30000);
       });
     } catch (error) {
       console.error('Error uploading face image:', error);
@@ -564,20 +572,27 @@ class FaceRecognitionService {
     try {
       console.log('Using Node.js face indexing fallback...');
       
-      // Detect face and get descriptor
-      const faceDescriptor = await this.getFaceDescriptor(imageBuffer);
-      if (!faceDescriptor) {
-        throw new Error('No face detected in the image');
+      // Quick validation - skip face detection if image is too small
+      if (imageBuffer.length < 1024) {
+        console.log('Image too small for face detection, skipping...');
+      } else {
+        // Store face image first for immediate access
+        FaceRecognitionService.faceImages.set(memberId, imageBuffer);
+
+        // Detect face and get descriptor asynchronously
+        this.getFaceDescriptor(imageBuffer).then(faceDescriptor => {
+          if (faceDescriptor) {
+            // Cache the descriptor for future verifications
+            FaceRecognitionService.faceDescriptorCache.set(`stored_${memberId}`, {
+              descriptor: faceDescriptor,
+              timestamp: Date.now()
+            });
+            console.log('Face descriptor cached successfully');
+          }
+        }).catch(error => {
+          console.error('Failed to process face descriptor (non-blocking):', error);
+        });
       }
-
-      // Store face image
-      FaceRecognitionService.faceImages.set(memberId, imageBuffer);
-
-      // Cache the descriptor for future verifications
-      FaceRecognitionService.faceDescriptorCache.set(`stored_${memberId}`, {
-        descriptor: faceDescriptor,
-        timestamp: Date.now()
-      });
 
       console.log('Uploading face image...');
       const uploadResult = await this.uploadFaceImage(imageBuffer);

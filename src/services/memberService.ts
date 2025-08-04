@@ -14,7 +14,7 @@ export class MemberService {
     email: string;
     phone: string;
     gender: GenderType;
-    dateOfBirth: string | Date;
+    dateOfBirth?: string | Date;
     address?: string;
     emergencyContact?: string;
     membershipType: MembershipType;
@@ -42,7 +42,7 @@ export class MemberService {
       let photoUrl = memberData.photoUrl;
       console.log({photoUrl});
       
-      // If photoUrl is a base64 string, upload it to Cloudinary
+      // If photoUrl is a base64 string, upload it to Cloudinary asynchronously
       if (photoUrl && photoUrl.startsWith('data:image')) {
         try {
           // Convert base64 to buffer
@@ -54,8 +54,10 @@ export class MemberService {
           const uploadResult = await faceService.uploadFaceImage(imageBuffer);
           photoUrl = uploadResult.secure_url;
           
-          // Index the face for future recognition
-          await this.indexFace(imageBuffer, memberId);
+          // Index the face for future recognition asynchronously (don't wait for it)
+          this.indexFace(imageBuffer, memberId).catch(error => {
+            console.error('Failed to index face (non-blocking):', error);
+          });
         } catch (error) {
           console.error('Failed to upload member photo:', error);
           // Continue without photo if upload fails
@@ -69,7 +71,7 @@ export class MemberService {
           ...memberData,
           memberId,
           photoUrl,
-          dateOfBirth: new Date(memberData.dateOfBirth),
+          dateOfBirth: memberData.dateOfBirth ? new Date(memberData.dateOfBirth) : undefined,
           joinDate: new Date(),
           status: memberData.status || MemberStatus.ACTIVE
         }
@@ -415,5 +417,62 @@ export class MemberService {
   static async indexFace(imageBuffer: Buffer, memberId: string): Promise<string> {
     const faceService = FaceRecognitionService.getInstance();
     return faceService.indexFace(imageBuffer, memberId);
+  }
+
+  static async updateMemberPhoto(
+    memberId: string, 
+    gymId: string, 
+    photoUrl: string
+  ): Promise<Member> {
+    try {
+      // Check if member exists and belongs to the gym
+      const member = await prisma.member.findFirst({
+        where: { 
+          id: memberId,
+          gymId
+        }
+      });
+
+      if (!member) {
+        throw new Error('Member not found');
+      }
+
+      let finalPhotoUrl = photoUrl;
+      
+      // If photoUrl is a base64 string, upload it to Cloudinary
+      if (photoUrl && photoUrl.startsWith('data:image')) {
+        try {
+          // Convert base64 to buffer
+          const base64Data = photoUrl.replace(/^data:image\/\w+;base64,/, '');
+          const imageBuffer = Buffer.from(base64Data, 'base64');
+          
+          // Upload to Cloudinary directly using the face recognition service
+          const faceService = FaceRecognitionService.getInstance();
+          const uploadResult = await faceService.uploadFaceImage(imageBuffer);
+          finalPhotoUrl = uploadResult.secure_url;
+          
+          // Re-index the face for future recognition asynchronously (don't wait for it)
+          this.indexFace(imageBuffer, member.memberId).catch(error => {
+            console.error('Failed to re-index face (non-blocking):', error);
+          });
+        } catch (error) {
+          console.error('Failed to upload member photo:', error);
+          throw new Error('Failed to upload photo to Cloudinary');
+        }
+      }
+
+      // Update the member's photo
+      const updatedMember = await prisma.member.update({
+        where: { id: memberId },
+        data: { photoUrl: finalPhotoUrl }
+      });
+
+      return updatedMember;
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError) {
+        throw new Error('Database error occurred while updating member photo');
+      }
+      throw error;
+    }
   }
 }
