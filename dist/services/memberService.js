@@ -23,14 +23,17 @@ class MemberService {
             // Generate a unique memberId using UUID
             const memberId = `MEM${(0, uuid_1.v4)().split('-')[0]}`;
             let photoUrl = memberData.photoUrl;
+            console.log({ photoUrl });
             // If photoUrl is a base64 string, upload it to Cloudinary
             if (photoUrl && photoUrl.startsWith('data:image')) {
                 try {
                     // Convert base64 to buffer
                     const base64Data = photoUrl.replace(/^data:image\/\w+;base64,/, '');
                     const imageBuffer = Buffer.from(base64Data, 'base64');
-                    // Upload to Cloudinary
-                    photoUrl = await this.uploadFaceImage(imageBuffer);
+                    // Upload to Cloudinary directly using the face recognition service
+                    const faceService = faceRecognitionService_1.default.getInstance();
+                    const uploadResult = await faceService.uploadFaceImage(imageBuffer);
+                    photoUrl = uploadResult.secure_url;
                     // Index the face for future recognition
                     await this.indexFace(imageBuffer, memberId);
                 }
@@ -344,10 +347,6 @@ class MemberService {
             default:
                 throw new Error('Invalid membership type');
         }
-    }
-    static async uploadFaceImage(imageBuffer) {
-        const faceService = faceRecognitionService_1.default.getInstance();
-        return faceService.indexFace(imageBuffer, (0, uuid_1.v4)());
     }
     static async indexFace(imageBuffer, memberId) {
         const faceService = faceRecognitionService_1.default.getInstance();

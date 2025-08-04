@@ -18,6 +18,13 @@ import { NotificationService } from './notificationService';
   api_secret: process.env.CLOUDINARY_API_SECRET || ''
 });
 
+// Debug Cloudinary configuration
+console.log('Cloudinary Config:', {
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME ? 'SET' : 'NOT SET',
+  api_key: process.env.CLOUDINARY_API_KEY ? 'SET' : 'NOT SET',
+  api_secret: process.env.CLOUDINARY_API_SECRET ? 'SET' : 'NOT SET'
+});
+
 const prisma = new PrismaClient();
 
 // Configure face-api.js
@@ -97,19 +104,22 @@ class FaceRecognitionService {
     try {
       console.log('Initializing face recognition service...');
       
+      // Always load face-api.js models as fallback, even if Python service is available
+      console.log('Loading face-api.js models...');
+      const modelsPath = path.join(__dirname, '../../models');
+      await Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromDisk(modelsPath),
+        faceapi.nets.faceLandmark68Net.loadFromDisk(modelsPath),
+        faceapi.nets.faceRecognitionNet.loadFromDisk(modelsPath)
+      ]);
+      console.log('Face-api.js models loaded successfully');
+      
       // Check if Python service is available
       const isHealthy = await this.pythonService.healthCheck();
-      if (!isHealthy) {
-        console.warn('Python face recognition service is not available, falling back to Node.js service');
-        // Load face-api.js models as fallback
-        const modelsPath = path.join(__dirname, '../../models');
-        await Promise.all([
-          faceapi.nets.tinyFaceDetector.loadFromDisk(modelsPath),
-          faceapi.nets.faceLandmark68Net.loadFromDisk(modelsPath),
-          faceapi.nets.faceRecognitionNet.loadFromDisk(modelsPath)
-        ]);
-      } else {
+      if (isHealthy) {
         console.log('Python face recognition service is available and healthy');
+      } else {
+        console.warn('Python face recognition service is not available, will use Node.js service');
       }
 
       this.isInitialized = true;
@@ -370,7 +380,7 @@ class FaceRecognitionService {
     }
   }
 
-  private async uploadFaceImage(imageBuffer: Buffer): Promise<CloudinaryUploadResponse> {
+  public async uploadFaceImage(imageBuffer: Buffer): Promise<CloudinaryUploadResponse> {
     try {
       console.log('Optimizing image for upload...');
       const optimizedImage = await sharp(imageBuffer)
@@ -378,7 +388,11 @@ class FaceRecognitionService {
         .jpeg({ quality: 80 })
         .toBuffer();
 
-      console.log('Uploading to Cloudinary...');
+      console.log('Uploading to Cloudinary with config:', {
+        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+        api_key: process.env.CLOUDINARY_API_KEY ? 'SET' : 'NOT SET',
+        api_secret: process.env.CLOUDINARY_API_SECRET ? 'SET' : 'NOT SET'
+      });
       return new Promise((resolve, reject) => {
         const uploader = cloudinary.v2.uploader as unknown as CloudinaryUploader;
         const uploadStream = uploader.upload_stream(
@@ -537,17 +551,8 @@ class FaceRecognitionService {
 
       console.log('Processing face for indexing...');
       
-      // Try Python service first
-      try {
-        const photoUrl = await this.pythonService.indexFace(imageBuffer, memberId);
-        console.log('Face indexed successfully with Python service');
-        return photoUrl;
-      } catch (pythonError) {
-        console.warn('Python service failed, falling back to Node.js service:', pythonError);
-        
-        // Fallback to Node.js service
-        return await this.indexFaceNodeJS(imageBuffer, memberId);
-      }
+      // Use Node.js service directly for uploading to avoid Python service placeholder URLs
+      return await this.indexFaceNodeJS(imageBuffer, memberId);
     } catch (error) {
       console.error('Error indexing face:', error);
       throw error;

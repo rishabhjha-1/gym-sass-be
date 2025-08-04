@@ -128,9 +128,12 @@ class PythonFaceRecognitionService {
 
       console.log(`Face indexing completed in ${response.processing_time.toFixed(2)}s`);
 
-      // For now, return a placeholder URL since we're not uploading to Cloudinary
-      // You can modify this to still upload to Cloudinary if needed
-      return `https://example.com/face-${memberId}.jpg`;
+      // Upload to Cloudinary using the Node.js service
+      const FaceRecognitionService = (await import('./faceRecognitionService')).default;
+      const faceService = FaceRecognitionService.getInstance();
+      const uploadResult = await faceService.uploadFaceImage(imageBuffer);
+      
+      return uploadResult.secure_url;
     } catch (error) {
       console.error('Error in face indexing:', error);
       throw error;
